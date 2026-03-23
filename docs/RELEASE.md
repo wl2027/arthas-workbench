@@ -5,10 +5,10 @@
 发布版本前，建议至少完成以下步骤：
 
 ```bash
-cd idea-plugin/arthas-workbench
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew spotlessApply
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew buildPlugin -x buildSearchableOptions -x jarSearchableOptions
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew verifyPlugin
 ```
 
 ## 发布清单
@@ -17,6 +17,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew buildPlugin -x buildSearchab
 - 更新 `CHANGELOG.md`
 - 检查 `README.md`、截图、图标和文档是否需要同步
 - 确认插件元数据、仓库地址、vendor 信息无误
+- 使用 JDK 21 显式执行 `verifyPlugin`，避免本地默认 `JAVA_HOME` 干扰 `instrumentCode`
 - 确认构建产物可以在本地 IDEA 中安装
 
 ## GitHub Actions 相关

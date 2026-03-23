@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-03-24
+### Fixed
+- 移除 `ArthasTelnetTtyConnector` 对 `Questioner` 和 `TtyConnector.init(Questioner)` 的覆写，消除 `verifyPlugin` 中的 scheduled for removal API 告警
+- 显式实现 `TtyConnector.resize(TermSize)`，避免 Telnet 终端继续依赖旧的默认分支
+- 明确使用 JDK 21 运行 `verifyPlugin`，规避本地异常 `JAVA_HOME` 带来的 `instrumentCode` 失败问题
+
 ## [0.0.1] - 2026-03-23
 ### Added
 - 支持自动发现并 Attach IDEA Run/Debug 启动的 Java 进程

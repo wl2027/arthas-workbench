@@ -1,7 +1,7 @@
 package com.alibaba.arthas.idea.workbench.service;
 
 import com.alibaba.arthas.idea.workbench.ArthasWorkbenchBundle;
-import com.jediterm.terminal.Questioner;
+import com.jediterm.core.util.TermSize;
 import com.jediterm.terminal.TtyConnector;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -57,20 +57,6 @@ public final class ArthasTelnetTtyConnector implements TtyConnector, AutoCloseab
     }
 
     @Override
-    @SuppressWarnings("removal")
-    public synchronized boolean init(Questioner questioner) {
-        if (isConnected()) {
-            return true;
-        }
-        try {
-            connect();
-            return true;
-        } catch (IOException exception) {
-            return false;
-        }
-    }
-
-    @Override
     public int read(char[] buffer, int offset, int length) throws IOException {
         Reader currentReader = reader;
         ensureConnected(currentReader);
@@ -118,6 +104,11 @@ public final class ArthasTelnetTtyConnector implements TtyConnector, AutoCloseab
     @Override
     public String getName() {
         return "arthas-telnet-" + port;
+    }
+
+    @Override
+    public void resize(TermSize termSize) {
+        // Arthas Telnet 不依赖交互式窗口尺寸协商，保持连接稳定即可。
     }
 
     @Override
