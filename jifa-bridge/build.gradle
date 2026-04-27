@@ -67,7 +67,7 @@ project(':common') {
         api 'org.apache.commons:commons-lang3:3.12.0'
         api 'commons-io:commons-io:2.13.0'
         api 'com.google.guava:guava:30.0-jre'
-        api 'com.google.code.gson:gson:2.8.9'
+        api 'com.google.code.gson:gson:2.14.0'
     }
 }
 
