@@ -8,6 +8,7 @@ Arthas Workbench 面向本地开发与调试场景，适合下面几类使用方
 - Attach 非 IDEA 启动的本地 JVM
 - 在 IDE 内维护多个 Arthas 会话的 Terminal / Log
 - 用浏览器打开目标会话的 Arthas Web UI
+- 右键分析 `.jfr`、`.hprof`、GC 日志和 thread dump 文件
 - 把多个会话统一暴露为一个稳定的 MCP Gateway
 
 ## 安装插件
@@ -15,7 +16,8 @@ Arthas Workbench 面向本地开发与调试场景，适合下面几类使用方
 ### 本地打包
 
 ```bash
-cd idea-plugin/arthas-workbench
+cd /path/to/arthas-workbench
+git submodule update --init --recursive
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew buildPlugin -x buildSearchableOptions -x jarSearchableOptions
 ```
 
@@ -147,6 +149,36 @@ Attach 成功后：
 
 当前默认是本地访问，因此更适合本地开发调试。
 
+## 使用 Jifa 分析文件
+
+当前插件统一通过 `Open in Jifa Web` 打开 Jifa 分析。
+
+### 浏览器版 Jifa Web
+
+适用文件：
+
+- `.jfr`
+- `.hprof`
+- `.phd`
+- GC 日志
+- thread dump
+
+使用方式：
+
+1. 在 IDEA 的项目视图或编辑器标签页中右键目标文件
+2. 选择 `Open in Jifa Web`
+3. 插件会启动或复用本地 Jifa 服务，并在浏览器打开对应分析页
+
+浏览器版会自动扫描当前已打开项目中的 `arthas-output` 目录，并把用户主动右键打开的任意可分析本地文件一并纳入托管索引。统一缓存位于：
+
+`~/.arthas-workbench-plugin/jifa`
+
+设置页中可以查看并清理：
+
+- `storage`
+- `meta`
+- `logs`
+
 ## 使用 MCP Gateway
 
 ### 统一入口
@@ -204,5 +236,6 @@ Attach 成功后：
 ## 相关文档
 
 - [ARCHITECTURE.md](ARCHITECTURE.md)
+- [JIFA.md](JIFA.md)
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 - [DEVELOPMENT.md](DEVELOPMENT.md)

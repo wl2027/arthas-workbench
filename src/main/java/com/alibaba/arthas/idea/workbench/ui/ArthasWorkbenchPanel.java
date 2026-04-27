@@ -1,6 +1,7 @@
 package com.alibaba.arthas.idea.workbench.ui;
 
 import com.alibaba.arthas.idea.workbench.ArthasWorkbenchBundle;
+import com.alibaba.arthas.idea.workbench.action.JifaWebOpenSupport;
 import com.alibaba.arthas.idea.workbench.model.ArthasSession;
 import com.alibaba.arthas.idea.workbench.model.ArthasSessionViewType;
 import com.alibaba.arthas.idea.workbench.model.AttachStrategyType;
@@ -99,6 +100,7 @@ public final class ArthasWorkbenchPanel extends JPanel implements Disposable {
     private final JBLabel selectionSessionValueLabel = createSelectionValueLabel();
     private final JButton refreshProcessesButton = createButton("workbench.button.refresh", this::refreshProcesses);
     private final JButton copyMcpButton = createButton("workbench.button.copy_mcp", this::copySelectedMcp);
+    private final JButton openJifaWebButton = createButton("workbench.button.open_jifa_web", this::openJifaWeb);
     private final JButton settingsButton = createButton("workbench.button.settings", this::openSettings);
     private final JButton attachButton = createButton("workbench.button.start_attach", this::attachSelectedProcess);
     private final JButton openSessionButton = createButton("workbench.button.open_session", this::openSelectedSession);
@@ -137,6 +139,7 @@ public final class ArthasWorkbenchPanel extends JPanel implements Disposable {
 
         JPanel rightActions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         rightActions.add(copyMcpButton);
+        rightActions.add(openJifaWebButton);
         rightActions.add(settingsButton);
 
         processStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 0));
@@ -831,6 +834,10 @@ public final class ArthasWorkbenchPanel extends JPanel implements Disposable {
     private void openSettings() {
         ShowSettingsUtil.getInstance().showSettingsDialog(project, ArthasWorkbenchConfigurable.class);
         refreshSelectionState();
+    }
+
+    private void openJifaWeb() {
+        JifaWebOpenSupport.openHome(project);
     }
 
     private void activateToolWindow(String toolWindowId) {

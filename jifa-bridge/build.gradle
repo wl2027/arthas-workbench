@@ -1,0 +1,378 @@
+import java.nio.file.Files
+import java.util.stream.Collectors
+import org.gradle.internal.os.OperatingSystem
+
+plugins {
+    id 'dev.equo.p2deps' version '1.7.8' apply false
+}
+
+allprojects {
+    version = '0.3.0-SNAPSHOT'
+
+    repositories {
+        maven {
+            url 'https://plugins.gradle.org/m2/'
+        }
+        mavenCentral()
+    }
+}
+
+def javaProjects = [
+        project(':common'),
+        project(':analysis'),
+        project(':gc-log'),
+        project(':jfr'),
+        project(':thread-dump'),
+        project(':heap-dump-api'),
+        project(':heap-dump-hook'),
+        project(':heap-dump-impl'),
+        project(':heap-dump-provider')
+]
+
+configure(javaProjects) {
+    apply plugin: 'java-library'
+
+    group = (name in ['common', 'analysis']) ? 'jifa' : 'jifa.analysis'
+
+    dependencies {
+        compileOnly 'org.slf4j:slf4j-api:2.0.7'
+
+        def lombokVersion = '1.18.22'
+        compileOnly "org.projectlombok:lombok:${lombokVersion}"
+        annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
+        testCompileOnly "org.projectlombok:lombok:${lombokVersion}"
+        testAnnotationProcessor "org.projectlombok:lombok:${lombokVersion}"
+    }
+
+    java {
+        toolchain {
+            languageVersion = JavaLanguageVersion.of(17)
+        }
+    }
+
+    [compileJava, compileTestJava].each { compile ->
+        compile.options.encoding = 'UTF-8'
+        compile.options.compilerArgs << '-Xlint:unchecked'
+        compile.options.compilerArgs << '-Xlint:deprecation'
+        compile.options.compilerArgs << '-parameters'
+    }
+
+    tasks.withType(Test).configureEach {
+        enabled = false
+    }
+}
+
+project(':common') {
+    dependencies {
+        api 'org.apache.commons:commons-lang3:3.12.0'
+        api 'commons-io:commons-io:2.13.0'
+        api 'com.google.guava:guava:30.0-jre'
+        api 'com.google.code.gson:gson:2.8.9'
+    }
+}
+
+project(':analysis') {
+    dependencies {
+        api project(':common')
+        implementation 'cglib:cglib:3.3.0'
+        implementation 'com.github.ben-manes.caffeine:caffeine:3.1.5'
+        implementation 'com.github.ben-manes.caffeine:guava:3.1.5'
+        implementation 'com.github.ben-manes.caffeine:jcache:3.1.5'
+    }
+}
+
+project(':gc-log') {
+    dependencies {
+        api project(':analysis')
+        implementation project(':common')
+    }
+}
+
+project(':jfr') {
+    dependencies {
+        api project(':analysis')
+        implementation 'org.openjdk.jmc:flightrecorder:8.2.0'
+        implementation 'org.openjdk.jmc:flightrecorder.rules:8.2.0'
+        implementation 'org.openjdk.jmc:flightrecorder.rules.jdk:8.2.0'
+        implementation 'org.ow2.asm:asm:9.3'
+    }
+}
+
+project(':thread-dump') {
+    dependencies {
+        api project(':analysis')
+        implementation 'com.esotericsoftware:kryo:5.5.0'
+    }
+}
+
+project(':heap-dump-api') {
+    dependencies {
+        api project(':analysis')
+    }
+}
+
+project(':heap-dump-eclipse-mat-deps') {
+    apply plugin: 'java'
+    apply plugin: 'dev.equo.p2deps'
+
+    p2deps {
+        into 'compileOnly', {
+            addFilter('platform', {
+                String os = System.getProperty('eclipse-mat-deps.os')
+                String arch = System.getProperty('eclipse-mat-deps.arch', System.getProperty('os.arch'))
+                String ws
+
+                if (arch == 'amd64') {
+                    arch = 'x86_64'
+                }
+
+                if (arch != 'x86_64' && arch != 'aarch64') {
+                    throw new IllegalStateException("Unsupported architecture: ${arch}")
+                }
+
+                if (os == null) {
+                    def platform = OperatingSystem.current()
+                    if (platform == OperatingSystem.LINUX) {
+                        os = 'linux'
+                    } else if (platform == OperatingSystem.MAC_OS) {
+                        os = 'macosx'
+                    } else if (platform == OperatingSystem.WINDOWS) {
+                        if (arch != 'x86_64') {
+                            throw new IllegalStateException("Unsupported architecture for Windows: ${arch}")
+                        }
+                        os = 'win32'
+                    } else {
+                        throw new IllegalStateException("Unsupported OS: ${platform}")
+                    }
+                }
+
+                if (os == 'linux') {
+                    ws = 'gtk'
+                } else if (os == 'macosx') {
+                    ws = 'cocoa'
+                } else if (os == 'win32') {
+                    ws = 'win32'
+                } else {
+                    throw new IllegalStateException("Unsupported OS: ${os}")
+                }
+
+                it.prop('osgi.os', os)
+                it.prop('osgi.ws', ws)
+                it.prop('osgi.arch', arch)
+            })
+
+            p2repo 'https://download.eclipse.org/eclipse/updates/4.34/'
+            install 'com.ibm.icu'
+            install 'org.apache.aries.spifly.dynamic.bundle'
+            install 'org.apache.felix.scr'
+            install 'org.eclipse.core.commands'
+            install 'org.eclipse.core.contenttype'
+            install 'org.eclipse.core.jobs'
+            install 'org.eclipse.core.runtime'
+            install 'org.eclipse.equinox.app'
+            install 'org.eclipse.equinox.common'
+            install 'org.eclipse.equinox.event'
+            install 'org.eclipse.equinox.preferences'
+            install 'org.eclipse.equinox.registry'
+            install 'org.eclipse.equinox.supplement'
+            install 'org.eclipse.osgi'
+            install 'org.eclipse.osgi.services'
+            install 'slf4j.simple'
+
+            install 'org.eclipse.help'
+            install 'org.eclipse.jface'
+            install 'org.eclipse.jface.text'
+            install 'org.eclipse.swt'
+            install 'org.eclipse.ui'
+            install 'org.eclipse.platform.feature.group'
+
+            p2repo 'https://download.eclipse.org/mat/1.16.1/update-site/'
+            install 'org.eclipse.mat.api'
+            install 'org.eclipse.mat.hprof'
+            install 'org.eclipse.mat.parser'
+            install 'org.eclipse.mat.report'
+            install 'org.eclipse.mat.ui'
+
+            p2repo 'https://download.eclipse.org/tools/orbit/simrel/orbit-aggregation/release/4.32.0/'
+            p2repo 'https://vlsi.github.io/mat-calcite-plugin-update-site/stable/'
+            install 'MatCalcitePlugin'
+            install 'jakarta.annotation-api'
+            install 'bcutil'
+            install 'bcprov'
+        }
+    }
+
+    def depsDirName = 'mat-deps'
+    def depsDirPath =
+            project(':heap-dump-provider').projectDir.toPath().resolve('src/main/resources').resolve(depsDirName)
+
+    [':heap-dump-impl', ':heap-dump-provider', ':heap-dump-hook'].each { moduleName ->
+        project(moduleName) {
+            ext {
+                mat_deps_dir_name = depsDirName
+                mat_deps_dir_path = depsDirPath.toAbsolutePath().toString()
+                osgi_jar = 'org.eclipse.osgi-3.22.0.jar'
+            }
+        }
+    }
+
+    afterEvaluate {
+        if (Files.isDirectory(depsDirPath)) {
+            def existing = Files.list(depsDirPath)
+            try {
+                if (existing.findAny().isPresent()) {
+                    return
+                }
+            } finally {
+                existing.close()
+            }
+        }
+
+        delete(depsDirPath)
+        Files.createDirectories(depsDirPath)
+
+        copy {
+            from configurations.compileClasspath
+            into "${depsDirPath}"
+            include '*.jar'
+        }
+
+        List<String> jarNames = new ArrayList<>()
+        Files.list(depsDirPath).map {
+            it.toFile().getName()
+        }.filter {
+            it.endsWith('.jar') && !it.startsWith('heap-dump-analysis-impl')
+        }.forEach {
+            jarNames.add(it)
+        }
+        jarNames.add('heap-dump-analysis-impl-' + version + '.jar')
+        Files.writeString(
+                depsDirPath.resolve('list'),
+                jarNames.stream().collect(Collectors.joining(',')))
+    }
+}
+
+project(':heap-dump-hook') {
+    def matDepsDirPath = project.ext.mat_deps_dir_path
+
+    dependencies {
+        def prefix = "${matDepsDirPath}/"
+        implementation fileTree(prefix) {
+            include 'org.eclipse.osgi*.jar'
+            include 'org.eclipse.core.runtime*.jar'
+            include 'org.eclipse.mat.hprof*.jar'
+            include 'org.eclipse.equinox.preferences*.jar'
+        }
+    }
+
+    def findHprofJarName = {
+        for (String name : file(matDepsDirPath).list()) {
+            if (name.contains('hprof')) {
+                return name
+            }
+        }
+        throw new IllegalStateException('Hprof jar not found')
+    }
+
+    tasks.register('hookPreferences', Zip) {
+        dependsOn compileJava
+        mustRunAfter(':heap-dump-impl:compileJava')
+        def hprofJarName = providers.provider { findHprofJarName() }
+        def preferences = 'org/eclipse/mat/hprof/ui/HprofPreferences.class'
+        def access = 'org/eclipse/mat/hprof/extension/HprofPreferencesAccess.class'
+        def classesDir = new File(buildDir, 'classes/java/main')
+        def distributionsDir = new File(buildDir, 'distributions')
+        def matDepsDir = new File(matDepsDirPath)
+
+        from({
+            zipTree("${matDepsDirPath}/${hprofJarName.get()}")
+        }) {
+            exclude preferences
+            exclude access
+        }
+
+        from(classesDir) {
+            include preferences
+            include access
+        }
+
+        archiveFileName.set(hprofJarName)
+
+        outputs.upToDateWhen {
+            false
+        }
+
+        doLast {
+            def hprof = hprofJarName.get()
+            new File(matDepsDir, hprof).delete()
+            Files.copy(
+                    new File(distributionsDir, hprof).toPath(),
+                    new File(matDepsDir, hprof).toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+}
+
+project(':heap-dump-impl') {
+    def matDepsDirPath = project.ext.mat_deps_dir_path
+    def osgiJar = project.ext.osgi_jar
+
+    dependencies {
+        implementation project(':heap-dump-api')
+        compileOnly project(':heap-dump-hook')
+
+        def prefix = "${matDepsDirPath}/"
+        implementation fileTree(prefix) {
+            include '*.jar'
+            exclude 'slf4j.simple*.jar'
+        }
+
+        testImplementation project(':heap-dump-provider')
+    }
+
+    jar {
+        def resolvedVersion = project.version.toString()
+
+        manifest {
+            attributes(
+                    'Bundle-SymbolicName': 'org.eclipse.jifa.hda.implementation; singleton:=true',
+                    'Require-Bundle': 'org.eclipse.mat.api,org.eclipse.mat.parser,org.eclipse.mat.hprof,org.eclipse.osgi,MatCalcitePlugin',
+                    'Bundle-Activator': 'org.eclipse.jifa.hda.impl.Activator',
+                    'Import-Package': 'org.eclipse.mat.snapshot,org.eclipse.mat.util,org.eclipse.mat.query,org.eclipse.mat.parser.model,org.eclipse.mat.hprof.extension',
+                    'Bundle-Version': resolvedVersion.endsWith('-SNAPSHOT')
+                            ? resolvedVersion.substring(0, resolvedVersion.indexOf('-'))
+                            : resolvedVersion
+            )
+        }
+
+        archiveBaseName.set('heap-dump-analysis-impl')
+    }
+
+    tasks.register('installJar', Copy) {
+        dependsOn jar
+        from "${buildDir}/libs"
+        into "${matDepsDirPath}"
+        include "*${project.version}.jar"
+    }
+
+    compileTestJava.dependsOn installJar
+}
+
+project(':heap-dump-provider') {
+    def matDepsDirPath = project.ext.mat_deps_dir_path
+    def osgiJar = project.ext.osgi_jar
+
+    dependencies {
+        implementation project(':analysis')
+        implementation project(':heap-dump-api')
+        implementation files("${matDepsDirPath}/${osgiJar}")
+    }
+
+    compileJava.dependsOn(':heap-dump-impl:installJar')
+    processResources.dependsOn(':heap-dump-hook:hookPreferences')
+    processResources.dependsOn(':heap-dump-impl:installJar')
+
+    jar {
+        archiveBaseName.set('heap-dump-analysis-provider')
+    }
+}

@@ -1,0 +1,4 @@
+[submodule "jifa"]
+	path = jifa
+	url = https://github.com/wl2027/jifa.git
+	branch = arthas-workbench

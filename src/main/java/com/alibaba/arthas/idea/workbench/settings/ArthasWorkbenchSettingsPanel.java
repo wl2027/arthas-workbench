@@ -9,6 +9,7 @@ import com.alibaba.arthas.idea.workbench.model.PortAllocationMode;
 import com.alibaba.arthas.idea.workbench.service.ArthasMcpGatewayService;
 import com.alibaba.arthas.idea.workbench.service.ArthasPackageService;
 import com.alibaba.arthas.idea.workbench.service.ArthasWorkbenchSettingsService;
+import com.alibaba.arthas.idea.workbench.service.JifaWebRuntimeService;
 import com.alibaba.arthas.idea.workbench.util.McpConfigFormatter;
 import com.alibaba.arthas.idea.workbench.util.UiToolkit;
 import com.intellij.openapi.application.ApplicationManager;
@@ -32,6 +33,12 @@ import java.awt.Insets;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.EnumMap;
 import java.util.Objects;
 import java.util.UUID;
@@ -53,8 +60,12 @@ public final class ArthasWorkbenchSettingsPanel {
             "https://arthas.aliyun.com/download/latest_version?mirror=aliyun";
     static final String OFFICIAL_VERSION_PLACEHOLDER = "4.1.8";
     static final String CUSTOM_REMOTE_ZIP_PLACEHOLDER = OFFICIAL_LATEST_DOWNLOAD_URL;
+    private static final DateTimeFormatter JIFA_CACHE_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final Project project;
+    private final JifaCacheController jifaCacheController;
+    private final boolean runJifaCacheTasksAsync;
     private final JPanel rootPanel = new JPanel(new BorderLayout());
     private final JPanel contentPanel = new JPanel(new GridBagLayout());
     private final EnumMap<PackageSourceType, String> sourceValueDrafts = new EnumMap<>(PackageSourceType.class);
@@ -83,14 +94,39 @@ public final class ArthasWorkbenchSettingsPanel {
 
     private final JBCheckBox autoOpenTerminalCheckBox = new JBCheckBox(message("settings.auto.open.terminal"));
     private final JBCheckBox autoOpenWebUiCheckBox = new JBCheckBox(message("settings.auto.open.web_ui"));
+    private final JBTextField jifaCacheRootField = new JBTextField();
+    private final JBLabel jifaCacheOverviewLabel = new JBLabel();
+    private final JBLabel jifaCacheStorageLabel = new JBLabel();
+    private final JBLabel jifaCacheMetadataLabel = new JBLabel();
+    private final JBLabel jifaCacheLogsLabel = new JBLabel();
+    private final JBLabel jifaCacheServerLabel = new JBLabel();
+    private final JBLabel jifaCacheStatusLabel = new JBLabel();
+    private final JButton refreshJifaCacheButton = new JButton(message("settings.action.refresh"));
+    private final JButton openJifaCacheDirectoryButton = new JButton(message("settings.action.open.directory"));
+    private final JButton clearJifaLogsButton = new JButton(message("settings.action.clear.jifa.logs"));
+    private final JButton clearJifaMetadataButton = new JButton(message("settings.action.clear.jifa.metadata"));
+    private final JButton clearJifaAllButton = new JButton(message("settings.action.clear.jifa.all"));
     private final JBTextArea settingsNoteArea = createNoteArea(message("settings.note"));
     private PackageSourceType lastSourceType = PackageSourceType.OFFICIAL_LATEST;
     private boolean syncingSourceUi;
 
     public ArthasWorkbenchSettingsPanel(Project project) {
+        this(project, defaultJifaCacheController(), true);
+    }
+
+    ArthasWorkbenchSettingsPanel(Project project, JifaCacheController jifaCacheController) {
+        this(project, jifaCacheController, false);
+    }
+
+    private ArthasWorkbenchSettingsPanel(
+            Project project, JifaCacheController jifaCacheController, boolean runJifaCacheTasksAsync) {
         this.project = project;
+        this.jifaCacheController = Objects.requireNonNull(jifaCacheController, "jifaCacheController");
+        this.runJifaCacheTasksAsync = runJifaCacheTasksAsync;
         buildUi();
         bindActions();
+        applyJifaCacheSummary(emptyCacheSummary(this.jifaCacheController.rootDirectory()));
+        refreshJifaCacheSummary();
     }
 
     public JComponent getComponent() {
@@ -265,6 +301,38 @@ public final class ArthasWorkbenchSettingsPanel {
         return generateMcpGatewayTokenButton.isEnabled();
     }
 
+    String getJifaCacheRoot() {
+        return jifaCacheRootField.getText();
+    }
+
+    String getJifaCacheOverviewText() {
+        return jifaCacheOverviewLabel.getText();
+    }
+
+    String getJifaCacheMetadataText() {
+        return jifaCacheMetadataLabel.getText();
+    }
+
+    String getJifaCacheLogsText() {
+        return jifaCacheLogsLabel.getText();
+    }
+
+    String getJifaCacheServerText() {
+        return jifaCacheServerLabel.getText();
+    }
+
+    String getJifaCacheStatusText() {
+        return jifaCacheStatusLabel.getText();
+    }
+
+    void clickRefreshJifaCacheButton() {
+        refreshJifaCacheButton.doClick();
+    }
+
+    void clickClearJifaMetadataButton() {
+        clearJifaMetadataButton.doClick();
+    }
+
     /**
      * 设置页使用“模块卡片”的方式分区，减少大段平铺表单带来的阅读压力。
      */
@@ -276,6 +344,7 @@ public final class ArthasWorkbenchSettingsPanel {
         addRootSection(rootGc, createPasswordSection());
         addRootSection(rootGc, createGatewaySection());
         addRootSection(rootGc, createBehaviorSection());
+        addRootSection(rootGc, createJifaCacheSection());
         //        addRootSection(rootGc, createFooterNotePanel());
 
         rootGc.gridy++;
@@ -335,6 +404,24 @@ public final class ArthasWorkbenchSettingsPanel {
         addRow(panel, gc, autoOpenTerminalCheckBox);
         addRow(panel, gc, autoOpenWebUiCheckBox);
         addRow(panel, gc, createNoteArea(message("settings.section.behavior.note")));
+        return panel;
+    }
+
+    private JPanel createJifaCacheSection() {
+        JPanel panel = createSectionPanel("settings.section.jifa.cache");
+        GridBagConstraints gc = sectionConstraints();
+        jifaCacheRootField.setEditable(false);
+        jifaCacheRootField.setFocusable(false);
+        jifaCacheRootField.putClientProperty("JTextField.showClearButton", false);
+        addField(panel, gc, "settings.jifa.cache.root", jifaCacheRootField);
+        addField(panel, gc, "settings.jifa.cache.overview", jifaCacheOverviewLabel);
+        addField(panel, gc, "settings.jifa.cache.storage", jifaCacheStorageLabel);
+        addField(panel, gc, "settings.jifa.cache.metadata", jifaCacheMetadataLabel);
+        addField(panel, gc, "settings.jifa.cache.logs", jifaCacheLogsLabel);
+        addField(panel, gc, "settings.jifa.cache.server", jifaCacheServerLabel);
+        addRow(panel, gc, createJifaCacheActions());
+        addRow(panel, gc, jifaCacheStatusLabel);
+        addRow(panel, gc, createNoteArea(message("settings.section.jifa.cache.note")));
         return panel;
     }
 
@@ -414,6 +501,16 @@ public final class ArthasWorkbenchSettingsPanel {
         return packageActionPanel;
     }
 
+    private JPanel createJifaCacheActions() {
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        panel.add(refreshJifaCacheButton);
+        panel.add(openJifaCacheDirectoryButton);
+        panel.add(clearJifaLogsButton);
+        panel.add(clearJifaMetadataButton);
+        panel.add(clearJifaAllButton);
+        return panel;
+    }
+
     /**
      * 所有联动逻辑都集中在这里，避免 UI 更新散落在各个 setter 中。
      */
@@ -427,6 +524,20 @@ public final class ArthasWorkbenchSettingsPanel {
                 portAllocationHintLabel.setText(currentPortAllocationMode().getHint()));
         mcpPasswordModeCombo.addActionListener(event -> updatePasswordModeUi());
         mcpGatewayAuthModeCombo.addActionListener(event -> updateGatewayAuthModeUi());
+        refreshJifaCacheButton.addActionListener(event -> refreshJifaCacheSummary());
+        openJifaCacheDirectoryButton.addActionListener(event -> openJifaCacheDirectory());
+        clearJifaLogsButton.addActionListener(event -> runJifaCacheTask(
+                message("settings.jifa.cache.status.clearing.logs"),
+                "settings.jifa.cache.notify.logs_cleared",
+                jifaCacheController::clearLogs));
+        clearJifaMetadataButton.addActionListener(event -> runJifaCacheTask(
+                message("settings.jifa.cache.status.clearing.metadata"),
+                "settings.jifa.cache.notify.metadata_cleared",
+                jifaCacheController::clearMetadata));
+        clearJifaAllButton.addActionListener(event -> runJifaCacheTask(
+                message("settings.jifa.cache.status.clearing.all"),
+                "settings.jifa.cache.notify.all_cleared",
+                jifaCacheController::clearAll));
         sourceValueField.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
@@ -577,6 +688,153 @@ public final class ArthasWorkbenchSettingsPanel {
         return rawValue == null ? "" : rawValue.trim();
     }
 
+    private void refreshJifaCacheSummary() {
+        runJifaCacheTask(message("settings.jifa.cache.status.loading"), null, jifaCacheController::loadSummary);
+    }
+
+    private void openJifaCacheDirectory() {
+        try {
+            Files.createDirectories(jifaCacheController.rootDirectory());
+            UiToolkit.openDirectory(project, jifaCacheController.rootDirectory().toString());
+        } catch (IOException exception) {
+            notifyJifaCacheError(message("settings.jifa.cache.status.failed", exception.getMessage()));
+        }
+    }
+
+    private void runJifaCacheTask(String busyMessage, String successNotificationKey, CacheSummarySupplier supplier) {
+        setJifaCacheBusy(true, busyMessage);
+        if (!runJifaCacheTasksAsync || ApplicationManager.getApplication() == null) {
+            runJifaCacheTaskNow(successNotificationKey, supplier);
+            return;
+        }
+        ApplicationManager.getApplication().executeOnPooledThread(() -> {
+            try {
+                JifaWebRuntimeService.CacheSummary summary = supplier.get();
+                runOnUiThread(() -> completeJifaCacheTask(summary, successNotificationKey));
+            } catch (Exception exception) {
+                runOnUiThread(() -> failJifaCacheTask(exception));
+            }
+        });
+    }
+
+    private void runJifaCacheTaskNow(String successNotificationKey, CacheSummarySupplier supplier) {
+        try {
+            completeJifaCacheTask(supplier.get(), successNotificationKey);
+        } catch (Exception exception) {
+            failJifaCacheTask(exception);
+        }
+    }
+
+    private void completeJifaCacheTask(JifaWebRuntimeService.CacheSummary summary, String successNotificationKey) {
+        applyJifaCacheSummary(summary);
+        setJifaCacheBusy(
+                false, message("settings.jifa.cache.status.ready", formatDateTime(summary.generatedAtEpochMillis())));
+        if (successNotificationKey != null) {
+            notifyJifaCacheInfo(message(successNotificationKey));
+        }
+    }
+
+    private void failJifaCacheTask(Exception exception) {
+        setJifaCacheBusy(false, message("settings.jifa.cache.status.failed", exception.getMessage()));
+        notifyJifaCacheError(message("settings.jifa.cache.status.failed", exception.getMessage()));
+    }
+
+    private void setJifaCacheBusy(boolean busy, String statusText) {
+        refreshJifaCacheButton.setEnabled(!busy);
+        openJifaCacheDirectoryButton.setEnabled(!busy);
+        clearJifaLogsButton.setEnabled(!busy);
+        clearJifaMetadataButton.setEnabled(!busy);
+        clearJifaAllButton.setEnabled(!busy);
+        jifaCacheStatusLabel.setText(statusText);
+    }
+
+    private void applyJifaCacheSummary(JifaWebRuntimeService.CacheSummary summary) {
+        jifaCacheRootField.setText(summary.rootDirectory().toString());
+        jifaCacheRootField.setToolTipText(summary.rootDirectory().toString());
+        jifaCacheOverviewLabel.setText(message(
+                "settings.jifa.cache.summary.overview",
+                summary.totalFileCount(),
+                formatBytes(summary.totalSizeBytes())));
+        jifaCacheStorageLabel.setText(message(
+                "settings.jifa.cache.summary.directory",
+                summary.storage().fileCount(),
+                formatBytes(summary.storage().sizeBytes())));
+        jifaCacheMetadataLabel.setText(message(
+                "settings.jifa.cache.summary.metadata",
+                summary.metadata().fileCount(),
+                formatBytes(summary.metadata().sizeBytes()),
+                summary.importedEntryCount()));
+        jifaCacheLogsLabel.setText(message(
+                "settings.jifa.cache.summary.directory",
+                summary.logs().fileCount(),
+                formatBytes(summary.logs().sizeBytes())));
+        jifaCacheServerLabel.setText(
+                summary.serverRunning()
+                        ? message("settings.jifa.cache.summary.server.running", summary.serverPort())
+                        : message("settings.jifa.cache.summary.server.stopped"));
+    }
+
+    private static JifaWebRuntimeService.CacheSummary emptyCacheSummary(Path rootDirectory) {
+        JifaWebRuntimeService.DirectorySummary storage =
+                new JifaWebRuntimeService.DirectorySummary(rootDirectory.resolve("storage"), 0L, 0L, 0L);
+        JifaWebRuntimeService.DirectorySummary metadata =
+                new JifaWebRuntimeService.DirectorySummary(rootDirectory.resolve("meta"), 0L, 0L, 0L);
+        JifaWebRuntimeService.DirectorySummary logs =
+                new JifaWebRuntimeService.DirectorySummary(rootDirectory.resolve("logs"), 0L, 0L, 0L);
+        return new JifaWebRuntimeService.CacheSummary(
+                rootDirectory, storage, metadata, logs, 0L, 0L, 0, false, -1, System.currentTimeMillis());
+    }
+
+    private static JifaCacheController defaultJifaCacheController() {
+        if (ApplicationManager.getApplication() == null) {
+            return new ServiceBackedJifaCacheController(new JifaWebRuntimeService());
+        }
+        JifaWebRuntimeService runtimeService =
+                ApplicationManager.getApplication().getService(JifaWebRuntimeService.class);
+        return new ServiceBackedJifaCacheController(
+                runtimeService == null ? new JifaWebRuntimeService() : runtimeService);
+    }
+
+    private void runOnUiThread(Runnable runnable) {
+        if (ApplicationManager.getApplication() == null) {
+            runnable.run();
+            return;
+        }
+        ApplicationManager.getApplication().invokeLater(runnable);
+    }
+
+    private void notifyJifaCacheInfo(String text) {
+        if (ApplicationManager.getApplication() == null) {
+            return;
+        }
+        UiToolkit.notifyInfo(project, text);
+    }
+
+    private void notifyJifaCacheError(String text) {
+        if (ApplicationManager.getApplication() == null) {
+            return;
+        }
+        UiToolkit.notifyError(project, text);
+    }
+
+    private String formatDateTime(long epochMillis) {
+        return Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()).format(JIFA_CACHE_TIME_FORMATTER);
+    }
+
+    private String formatBytes(long bytes) {
+        if (bytes < 1024) {
+            return bytes + " B";
+        }
+        double size = bytes;
+        String[] units = {"KB", "MB", "GB", "TB"};
+        int unitIndex = -1;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return String.format(java.util.Locale.ROOT, "%.1f %s", size, units[unitIndex]);
+    }
+
     private String resolveGatewayTokenForSaving() {
         String configuredToken = mcpGatewayTokenField.getText().trim();
         if (currentGatewayAuthMode().usesGeneratedPassword() && configuredToken.isBlank()) {
@@ -669,6 +927,57 @@ public final class ArthasWorkbenchSettingsPanel {
             boolean clickToChoose,
             boolean focusable,
             String tooltip) {}
+
+    @FunctionalInterface
+    interface CacheSummarySupplier {
+        JifaWebRuntimeService.CacheSummary get() throws Exception;
+    }
+
+    interface JifaCacheController {
+        Path rootDirectory();
+
+        JifaWebRuntimeService.CacheSummary loadSummary() throws Exception;
+
+        JifaWebRuntimeService.CacheSummary clearLogs() throws Exception;
+
+        JifaWebRuntimeService.CacheSummary clearMetadata() throws Exception;
+
+        JifaWebRuntimeService.CacheSummary clearAll() throws Exception;
+    }
+
+    private static final class ServiceBackedJifaCacheController implements JifaCacheController {
+
+        private final JifaWebRuntimeService runtimeService;
+
+        private ServiceBackedJifaCacheController(JifaWebRuntimeService runtimeService) {
+            this.runtimeService = runtimeService;
+        }
+
+        @Override
+        public Path rootDirectory() {
+            return runtimeService.rootDirectory();
+        }
+
+        @Override
+        public JifaWebRuntimeService.CacheSummary loadSummary() throws Exception {
+            return runtimeService.loadCacheSummary();
+        }
+
+        @Override
+        public JifaWebRuntimeService.CacheSummary clearLogs() throws Exception {
+            return runtimeService.clearLogs();
+        }
+
+        @Override
+        public JifaWebRuntimeService.CacheSummary clearMetadata() throws Exception {
+            return runtimeService.clearMetadata();
+        }
+
+        @Override
+        public JifaWebRuntimeService.CacheSummary clearAll() throws Exception {
+            return runtimeService.clearAll();
+        }
+    }
 
     /**
      * 自定义“版本 / 地址 / 路径”输入框的空态提示绘制，避免依赖不同 IDEA 主题下不稳定的 placeholder clientProperty。

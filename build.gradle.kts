@@ -1,3 +1,4 @@
+import org.gradle.internal.os.OperatingSystem
 import org.jetbrains.changelog.Changelog
 import org.jetbrains.changelog.markdownToHTML
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
@@ -34,6 +35,32 @@ repositories {
 dependencies {
     implementation(libs.commonsNet)
     implementation(libs.gson)
+    compileOnly("org.slf4j:slf4j-api:2.0.17")
+    implementation("jifa:common:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    implementation("jifa:analysis:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    implementation("jifa.analysis:gc-log:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    implementation("jifa.analysis:jfr:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    implementation("jifa.analysis:thread-dump:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    implementation("jifa.analysis:heap-dump-api:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    implementation("jifa.analysis:heap-dump-impl:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    implementation("jifa.analysis:heap-dump-provider:0.3.0-SNAPSHOT") {
+        exclude(group = "org.slf4j", module = "slf4j-api")
+    }
+    runtimeOnly(files(layout.buildDirectory.file("generated/jifa-helper/arthas-jifa-server-helper.jar")))
     testImplementation(libs.junit)
     testImplementation(libs.opentest4j)
 
@@ -52,6 +79,26 @@ dependencies {
 
         testFramework(TestFrameworkType.Platform)
     }
+}
+
+val bundledJifaServerJar = layout.buildDirectory.file("generated/jifa-helper/arthas-jifa-server-helper.jar")
+
+val buildBundledJifaServerBootJar by tasks.registering(Exec::class) {
+    workingDir = file("jifa")
+    commandLine(
+        if (OperatingSystem.current().isWindows) {
+            listOf("cmd", "/c", "gradlew.bat", ":server:bootJar", "--no-daemon")
+        } else {
+            listOf("./gradlew", ":server:bootJar", "--no-daemon")
+        },
+    )
+}
+
+val prepareBundledJifaServerJar by tasks.registering(Sync::class) {
+    dependsOn(buildBundledJifaServerBootJar)
+    from(layout.projectDirectory.file("jifa/server/build/libs/jifa.jar"))
+    into(bundledJifaServerJar.get().asFile.parentFile)
+    rename { "arthas-jifa-server-helper.jar" }
 }
 
 spotless {
@@ -76,6 +123,8 @@ spotless {
 }
 
 intellijPlatform {
+    instrumentCode = false
+
     pluginConfiguration {
         name = providers.gradleProperty("pluginName")
         version = providers.gradleProperty("pluginVersion")
@@ -161,6 +210,7 @@ tasks {
     // 开发阶段执行 runIde 时自动应用格式化，降低本地调试成本。
     matching { it.name.startsWith("runIde") }.configureEach {
         dependsOn("spotlessApply")
+        dependsOn(prepareBundledJifaServerJar)
     }
 
     // 构建、测试、打包和发布阶段统一执行格式化校验。
@@ -169,9 +219,23 @@ tasks {
     }
     named("test") {
         dependsOn("spotlessCheck")
+        dependsOn(prepareBundledJifaServerJar)
     }
     named("buildPlugin") {
         dependsOn("spotlessCheck")
+        dependsOn(prepareBundledJifaServerJar)
+    }
+
+    named("prepareSandbox") {
+        dependsOn(prepareBundledJifaServerJar)
+    }
+
+    named("prepareTestSandbox") {
+        dependsOn(prepareBundledJifaServerJar)
+    }
+
+    named("clean") {
+        delete(bundledJifaServerJar)
     }
 
     publishPlugin {

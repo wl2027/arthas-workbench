@@ -10,6 +10,9 @@ import com.alibaba.arthas.idea.workbench.model.McpPasswordMode;
 import com.alibaba.arthas.idea.workbench.model.PackageSourceType;
 import com.alibaba.arthas.idea.workbench.model.PortAllocationMode;
 import com.alibaba.arthas.idea.workbench.service.ArthasWorkbenchSettingsService;
+import com.alibaba.arthas.idea.workbench.service.JifaWebRuntimeService;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.junit.Test;
 
 /**
@@ -162,5 +165,73 @@ public class ArthasWorkbenchSettingsPanelTest {
                 ArthasWorkbenchSettingsPanel.buildGatewayMcpConfig("http://127.0.0.1:18765/gateway", "");
         assertTrue(configWithoutToken.contains("\"url\": \"http://127.0.0.1:18765/gateway/mcp\""));
         assertFalse(configWithoutToken.contains("\"Authorization\""));
+    }
+
+    @Test
+    public void shouldRenderAndRefreshJifaCacheSummary() throws Exception {
+        Path root = Files.createTempDirectory("arthas-workbench-jifa-cache-panel");
+        JifaWebRuntimeService.CacheSummary initialSummary = cacheSummary(root, 5L, 1024L, 2, true, 18489);
+        JifaWebRuntimeService.CacheSummary refreshedSummary = cacheSummary(root, 1L, 128L, 0, false, -1);
+
+        ArthasWorkbenchSettingsPanel.JifaCacheController controller =
+                new ArthasWorkbenchSettingsPanel.JifaCacheController() {
+                    private JifaWebRuntimeService.CacheSummary current = initialSummary;
+
+                    @Override
+                    public Path rootDirectory() {
+                        return root;
+                    }
+
+                    @Override
+                    public JifaWebRuntimeService.CacheSummary loadSummary() {
+                        return current;
+                    }
+
+                    @Override
+                    public JifaWebRuntimeService.CacheSummary clearLogs() {
+                        return current;
+                    }
+
+                    @Override
+                    public JifaWebRuntimeService.CacheSummary clearMetadata() {
+                        current = refreshedSummary;
+                        return current;
+                    }
+
+                    @Override
+                    public JifaWebRuntimeService.CacheSummary clearAll() {
+                        current = refreshedSummary;
+                        return current;
+                    }
+                };
+
+        ArthasWorkbenchSettingsPanel panel = new ArthasWorkbenchSettingsPanel(null, controller);
+
+        assertEquals(root.toString(), panel.getJifaCacheRoot());
+        assertTrue(panel.getJifaCacheOverviewText().contains("5 files"));
+        assertTrue(panel.getJifaCacheMetadataText().contains("Imported mappings: 2"));
+        String initialServerText = panel.getJifaCacheServerText();
+        assertFalse(initialServerText.isBlank());
+
+        panel.clickClearJifaMetadataButton();
+
+        assertTrue(panel.getJifaCacheOverviewText().contains("1 files"));
+        assertTrue(panel.getJifaCacheLogsText().contains("1 files"));
+        assertTrue(panel.getJifaCacheMetadataText().contains("Imported mappings: 0"));
+        assertFalse(panel.getJifaCacheServerText().isBlank());
+        assertFalse(panel.getJifaCacheServerText().equals(initialServerText));
+        assertFalse(panel.getJifaCacheStatusText().isBlank());
+    }
+
+    private JifaWebRuntimeService.CacheSummary cacheSummary(
+            Path root, long totalFiles, long totalBytes, int importedEntries, boolean running, int port) {
+        JifaWebRuntimeService.DirectorySummary storage =
+                new JifaWebRuntimeService.DirectorySummary(root.resolve("storage"), totalBytes / 2, 1L, 0L);
+        JifaWebRuntimeService.DirectorySummary metadata =
+                new JifaWebRuntimeService.DirectorySummary(root.resolve("meta"), totalBytes / 4, 1L, 0L);
+        JifaWebRuntimeService.DirectorySummary logs =
+                new JifaWebRuntimeService.DirectorySummary(root.resolve("logs"), totalBytes / 4, 1L, 0L);
+        return new JifaWebRuntimeService.CacheSummary(
+                root, storage, metadata, logs, totalBytes, totalFiles, importedEntries, running, port, 1L);
     }
 }

@@ -29,4 +29,14 @@
                     secondary="false"
                     canCloseContents="true"/>
     </extensions>
+
+    <actions>
+        <action id="com.github.wl2027.arthasworkbench.jifaOpenAction"
+                class="com.alibaba.arthas.idea.workbench.action.OpenInJifaWebAction"
+                text="Open in Jifa Web"
+                description="Open the selected JVM artifact in the bundled Jifa Web browser experience">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            <add-to-group group-id="EditorTabPopupMenu" anchor="last"/>
+        </action>
+    </actions>
 </idea-plugin>

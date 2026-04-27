@@ -2,7 +2,20 @@
 
 # arthas-workbench Changelog
 
-## [Unreleased]
+## [0.0.4] - 2026-04-27
+### Added
+- 集成 Jifa Web 文件分析入口，支持从 IDEA 右键打开 `.jfr`、`.hprof`、GC 日志和 thread dump
+- Settings 页面新增 Jifa Web 缓存概览、目录打开与清理操作
+
+### Changed
+- 将 Jifa 依赖形态调整为 `git submodule` + `jifa-bridge`，并改为调用子模块自己的 `gradlew` 构建 helper server
+- 构建流程新增本地 Jifa helper server 打包与沙箱准备步骤
+- 下线 IDEA 内嵌 JFR 入口，Jifa 文件分析统一走浏览器版 `Open in Jifa Web`
+- 浏览器版 Jifa Web 现在会持续托管用户主动打开的任意可分析本地文件，不再局限于 `arthas-output`
+- README 与 `docs/*` 同步补充 Jifa 集成、缓存和发布约定说明
+
+### Fixed
+- 修复浏览器版 JFR 深链接缺少 `/jfr-file-analysis/*` 路由转发的问题
 
 ## [0.0.3] - 2026-03-25
 ### Changed

@@ -16,6 +16,7 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew verifyPlugin
 - 更新 `gradle.properties` 中的 `pluginVersion`
 - 更新 `CHANGELOG.md`
 - 检查 `README.md`、截图、图标和文档是否需要同步
+- 确认 `jifa/` submodule 已初始化并指向预期提交；如有本地 Jifa 补丁，需先在子模块仓库完成提交
 - 确认插件元数据、仓库地址、vendor 信息无误
 - 使用 JDK 21 显式执行 `verifyPlugin`，避免本地默认 `JAVA_HOME` 干扰 `instrumentCode`
 - 确认构建产物可以在本地 IDEA 中安装

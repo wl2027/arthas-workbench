@@ -2,13 +2,14 @@
 
 ## 设计目标
 
-Arthas Workbench 当前聚焦本地开发场景，核心目标有 5 个：
+Arthas Workbench 当前聚焦本地开发场景，核心目标有 6 个：
 
 1. 在 IDEA 内快速发现并选择目标 Java 进程。
 2. 把 Arthas 包来源统一抽象，避免用户手工管理多种 Zip / Jar 来源。
 3. 把 Attach 动作统一收敛到稳定的 `arthas-boot` 工作流。
 4. 把 Terminal、Log、Web UI、MCP 的入口统一收敛到清晰的 IDE 工作流中。
 5. 让 MCP 能力以稳定 Gateway 的形式暴露给 AI / IDE 内部助手使用。
+6. 把 JFR、heap dump、GC 日志和 thread dump 的文件分析能力并入同一套 IDE 工作流。
 
 ## 当前 UI 分层
 
@@ -50,6 +51,15 @@ Sessions Tool Window 负责一个 agent 一个 tab 的会话管理。
 - 运行中禁止手动关闭 tab
 - 停止或失败后允许点击 `x` 关闭
 - 会话恢复后可以重新打开
+
+### Jifa 分析
+
+Jifa 分析当前统一走浏览器版 `Open in Jifa Web`。
+
+职责边界：
+
+- 插件负责识别可分析文件、托管索引、本地 helper server 生命周期和浏览器跳转
+- Jifa Web 负责 `.jfr`、`.hprof`、GC 日志和 thread dump 的完整交互分析
 
 ## 当前核心抽象
 
@@ -153,6 +163,15 @@ Settings 中当前拆成两套独立配置：
 - 记录当前 tab 选择的是 `Terminal` 还是 `Log`
 - 根据 PID 查找最新会话
 - 在进程结束时自动标记为 `STOPPED`
+
+### Jifa Runtime
+
+Jifa 相关运行期能力当前由 `JifaWebRuntimeService` 负责：
+
+- 本地 helper server 生命周期
+- 文件同步和托管索引
+- 全局缓存目录管理
+- 浏览器版分析页跳转
 
 ### MCP Gateway
 

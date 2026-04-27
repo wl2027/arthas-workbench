@@ -11,7 +11,7 @@
 ### 格式化
 
 ```bash
-cd idea-plugin/arthas-workbench
+cd /path/to/arthas-workbench
 ./gradlew spotlessApply
 ./gradlew spotlessCheck
 ```
@@ -25,21 +25,21 @@ cd idea-plugin/arthas-workbench
 ### 本地启动插件沙箱
 
 ```bash
-cd idea-plugin/arthas-workbench
+cd /path/to/arthas-workbench
 ./gradlew runIde
 ```
 
 ### 测试
 
 ```bash
-cd idea-plugin/arthas-workbench
+cd /path/to/arthas-workbench
 ./gradlew test
 ```
 
 ### 打包
 
 ```bash
-cd idea-plugin/arthas-workbench
+cd /path/to/arthas-workbench
 ./gradlew buildPlugin -x buildSearchableOptions -x jarSearchableOptions
 ```
 
@@ -80,6 +80,31 @@ cd idea-plugin/arthas-workbench
 
 - `src/test/java/com/alibaba/arthas/idea/workbench/...`
 
+## Jifa 集成结构
+
+当前仓库通过 `jifa` submodule 接入 Jifa 源码，请先初始化子模块。
+
+```bash
+git submodule update --init --recursive
+```
+
+核心结构如下：
+
+- `jifa/`
+  Jifa submodule，默认指向 `wl2027/jifa` 的 `arthas-workbench` 分支
+- `jifa-bridge/`
+  Gradle 组合构建桥，用于把 Jifa 子模块映射成插件依赖坐标
+- `build/generated/jifa-helper/arthas-jifa-server-helper.jar`
+  由 `jifa/server:bootJar` 生成并复制到插件构建目录的 helper server 产物
+
+对应构建约定：
+
+- `runIde`、`prepareSandbox`、`buildPlugin` 会自动先准备 Jifa helper server
+- `settings.gradle.kts` 通过 `includeBuild("jifa-bridge")` 复用 Jifa 的分析模块
+- helper server 的构建通过子模块自己的 `gradlew` 完成，避免把 Jifa 上游构建脚本补丁继续堆在主仓里
+
+详细说明见：[JIFA.md](JIFA.md)
+
 ## 当前开发约定
 
 - 所有主代码与测试使用 Java 实现。
@@ -101,10 +126,14 @@ cd idea-plugin/arthas-workbench
 
 `~/.arthas-workbench-plugin/packages`
 
+### Jifa 缓存
+
+- 浏览器版 Jifa Web：`~/.arthas-workbench-plugin/jifa`
+
 ## 推荐提交流程
 
 ```bash
-cd idea-plugin/arthas-workbench
+cd /path/to/arthas-workbench
 ./gradlew spotlessApply
 ./gradlew test
 ./gradlew buildPlugin -x buildSearchableOptions -x jarSearchableOptions
