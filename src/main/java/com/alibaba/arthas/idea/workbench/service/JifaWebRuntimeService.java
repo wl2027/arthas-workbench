@@ -8,6 +8,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.Service;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -28,6 +29,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,6 +42,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.jar.JarFile;
 
 /**
  * 管理插件内置的 Jifa Web 本地服务、文件同步与缓存目录。
@@ -53,10 +56,16 @@ public final class JifaWebRuntimeService implements Disposable {
     private static final String STORAGE_DIR = "storage";
     private static final String META_DIR = "meta";
     private static final String LOG_DIR = "logs";
+    private static final String RUNTIME_DIR = "runtime";
     private static final String IMPORT_INDEX_FILE = "import-index.json";
     private static final String SERVER_STATE_FILE = "server-state.json";
     private static final String SERVER_LOG_FILE = "jifa-server.log";
     private static final String HELPER_JAR_NAME = "arthas-jifa-server-helper.jar";
+    private static final String HELPER_PATH_PROPERTY = "arthas.workbench.jifa.helper.path";
+    private static final String HELPER_URL_PROPERTY = "arthas.workbench.jifa.helper.url";
+    private static final String HELPER_VERSION_PROPERTY = "arthas.workbench.jifa.helper.version";
+    private static final String DEFAULT_HELPER_DOWNLOAD_URL =
+            "https://github.com/wl2027/arthas-workbench/releases/latest/download/" + HELPER_JAR_NAME;
     private static final int SOURCE_SCAN_DEPTH = 4;
     private static final int FILE_LIST_PAGE_SIZE = 500;
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(10);
@@ -111,6 +120,7 @@ public final class JifaWebRuntimeService implements Disposable {
         DirectorySummary storage = summarizeDirectory(storageDirectory());
         DirectorySummary metadata = summarizeDirectory(metaDirectory());
         DirectorySummary logs = summarizeDirectory(logsDirectory());
+        DirectorySummary runtime = summarizeDirectory(runtimeDirectory());
         ImportedIndex importIndex = loadImportIndex();
         ServerHandle healthyServer = currentHealthyServer();
         return new CacheSummary(
@@ -118,8 +128,9 @@ public final class JifaWebRuntimeService implements Disposable {
                 storage,
                 metadata,
                 logs,
-                storage.sizeBytes + metadata.sizeBytes + logs.sizeBytes,
-                storage.fileCount + metadata.fileCount + logs.fileCount,
+                runtime,
+                storage.sizeBytes + metadata.sizeBytes + logs.sizeBytes + runtime.sizeBytes,
+                storage.fileCount + metadata.fileCount + logs.fileCount + runtime.fileCount,
                 importIndex.entries.size(),
                 healthyServer != null,
                 healthyServer == null ? -1 : healthyServer.port,
@@ -158,6 +169,7 @@ public final class JifaWebRuntimeService implements Disposable {
             deleteDirectoryContents(storageDirectory());
             deleteDirectoryContents(metaDirectory());
             deleteDirectoryContents(logsDirectory());
+            deleteDirectoryContents(runtimeDirectory());
             return loadCacheSummary();
         }
     }
@@ -207,6 +219,10 @@ public final class JifaWebRuntimeService implements Disposable {
 
     private Path logsDirectory() {
         return rootDirectory().resolve(LOG_DIR);
+    }
+
+    private Path runtimeDirectory() {
+        return rootDirectory().resolve(RUNTIME_DIR);
     }
 
     private Path importIndexFile() {
@@ -306,6 +322,7 @@ public final class JifaWebRuntimeService implements Disposable {
         Files.createDirectories(storageDirectory());
         Files.createDirectories(metaDirectory());
         Files.createDirectories(logsDirectory());
+        Files.createDirectories(runtimeDirectory());
     }
 
     private DirectorySummary summarizeDirectory(Path directory) throws IOException {
@@ -691,24 +708,71 @@ public final class JifaWebRuntimeService implements Disposable {
         Files.writeString(serverStateFile(), gson.toJson(state), StandardCharsets.UTF_8);
     }
 
-    private Path resolveHelperJar() {
+    private Path resolveHelperJar() throws IOException {
+        Path overrideJar = resolveConfiguredHelperJar();
+        if (overrideJar != null && Files.isRegularFile(overrideJar)) {
+            validateHelperJar(overrideJar);
+            return overrideJar;
+        }
         Path pluginJar = resolvePluginHelperJar();
         if (pluginJar != null && Files.isRegularFile(pluginJar)) {
+            validateHelperJar(pluginJar);
             return pluginJar;
-        }
-        Path generatedJar = Path.of("build", "generated", "jifa-helper", HELPER_JAR_NAME)
-                .toAbsolutePath()
-                .normalize();
-        if (Files.isRegularFile(generatedJar)) {
-            return generatedJar;
         }
         Path workspaceJar = Path.of("jifa", "server", "build", "libs", "jifa.jar")
                 .toAbsolutePath()
                 .normalize();
         if (Files.isRegularFile(workspaceJar)) {
+            validateHelperJar(workspaceJar);
             return workspaceJar;
         }
-        throw new IllegalStateException("Unable to locate bundled Jifa server helper jar.");
+        return ensureCachedHelperJar();
+    }
+
+    private Path resolveConfiguredHelperJar() {
+        String configuredPath = resolveConfiguredHelperPath();
+        if (configuredPath.isBlank()) {
+            return null;
+        }
+        try {
+            return resolveConfiguredHelperLocation(normalize(Path.of(configuredPath)), configuredPath);
+        } catch (InvalidPathException exception) {
+            throw new IllegalStateException("Invalid Jifa helper path: " + configuredPath, exception);
+        }
+    }
+
+    private String resolveConfiguredHelperPath() {
+        String systemPropertyPath = System.getProperty(HELPER_PATH_PROPERTY, "").trim();
+        if (!systemPropertyPath.isBlank()) {
+            return systemPropertyPath;
+        }
+        if (ApplicationManager.getApplication() == null) {
+            return "";
+        }
+        ArthasWorkbenchSettingsService settingsService =
+                ApplicationManager.getApplication().getService(ArthasWorkbenchSettingsService.class);
+        return settingsService == null ? "" : settingsService.resolveJifaHelperPath();
+    }
+
+    private Path resolveConfiguredHelperLocation(Path configuredLocation, String configuredPath) {
+        if (Files.isRegularFile(configuredLocation)) {
+            return configuredLocation;
+        }
+        if (Files.isDirectory(configuredLocation)) {
+            Path helperJar = configuredLocation.resolve(HELPER_JAR_NAME);
+            if (Files.isRegularFile(helperJar)) {
+                return helperJar;
+            }
+            Path workspaceJar = configuredLocation.resolve("jifa.jar");
+            if (Files.isRegularFile(workspaceJar)) {
+                return workspaceJar;
+            }
+            throw new IllegalStateException("Configured Jifa helper directory does not contain "
+                    + HELPER_JAR_NAME
+                    + " or jifa.jar: "
+                    + configuredPath);
+        }
+        throw new IllegalStateException("Configured Jifa helper path does not exist: " + configuredPath);
     }
 
     private Path resolvePluginHelperJar() {
@@ -717,6 +781,86 @@ public final class JifaWebRuntimeService implements Disposable {
             return null;
         }
         return pluginDescriptor.getPluginPath().resolve("lib").resolve(HELPER_JAR_NAME);
+    }
+
+    Path ensureCachedHelperJar() throws IOException {
+        String version = resolveHelperVersion();
+        Path versionDirectory = runtimeDirectory().resolve(version);
+        Files.createDirectories(versionDirectory);
+        Path helperJar = versionDirectory.resolve(HELPER_JAR_NAME);
+        if (Files.isRegularFile(helperJar)) {
+            validateHelperJar(helperJar);
+            return helperJar;
+        }
+
+        String downloadUrl = resolveHelperDownloadUrl();
+        Path tempFile = Files.createTempFile(versionDirectory, "jifa-helper-", ".part");
+        try {
+            downloadToFile(downloadUrl, tempFile);
+            validateHelperJar(tempFile);
+            Files.move(tempFile, helperJar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            return helperJar;
+        } catch (IOException | RuntimeException exception) {
+            Files.deleteIfExists(tempFile);
+            throw new IllegalStateException(
+                    "Failed to prepare Jifa helper jar from "
+                            + downloadUrl
+                            + ". You can also set -D"
+                            + HELPER_PATH_PROPERTY
+                            + "=<path-to-"
+                            + HELPER_JAR_NAME
+                            + ">.",
+                    exception);
+        }
+    }
+
+    private String resolveHelperVersion() {
+        String configuredVersion =
+                System.getProperty(HELPER_VERSION_PROPERTY, "").trim();
+        if (!configuredVersion.isBlank()) {
+            return sanitizeVersionSegment(configuredVersion);
+        }
+        var pluginDescriptor = PluginManagerCore.getPlugin(PluginId.getId(PLUGIN_ID));
+        if (pluginDescriptor != null
+                && pluginDescriptor.getVersion() != null
+                && !pluginDescriptor.getVersion().isBlank()) {
+            return sanitizeVersionSegment(pluginDescriptor.getVersion());
+        }
+        return "dev-snapshot";
+    }
+
+    private String resolveHelperDownloadUrl() {
+        String configuredUrl = System.getProperty(HELPER_URL_PROPERTY, "").trim();
+        return configuredUrl.isBlank() ? DEFAULT_HELPER_DOWNLOAD_URL : configuredUrl;
+    }
+
+    private static String sanitizeVersionSegment(String version) {
+        return version.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private static void validateHelperJar(Path jarPath) throws IOException {
+        try (JarFile ignored = new JarFile(jarPath.toFile())) {
+            // 仅校验文件确实是可读取的合法 JAR。
+        }
+    }
+
+    private void downloadToFile(String url, Path target) throws IOException {
+        HttpResponse<Path> response;
+        try {
+            response = httpClient.send(
+                    HttpRequest.newBuilder(URI.create(url))
+                            .timeout(Duration.ofMinutes(10))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofFile(target));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while downloading Jifa helper jar from " + url, exception);
+        }
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException(
+                    "Failed to download Jifa helper jar: HTTP " + response.statusCode() + ", URL: " + url);
+        }
     }
 
     private int chooseRandomPort() throws IOException {
@@ -817,6 +961,7 @@ public final class JifaWebRuntimeService implements Disposable {
             DirectorySummary storage,
             DirectorySummary metadata,
             DirectorySummary logs,
+            DirectorySummary runtime,
             long totalSizeBytes,
             long totalFileCount,
             int importedEntryCount,

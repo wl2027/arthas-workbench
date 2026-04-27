@@ -19,7 +19,6 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.FileTime;
 import java.util.Collection;
@@ -28,6 +27,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -69,25 +70,30 @@ public class JifaWebRuntimeServiceTest {
         Path storageFile = root.resolve("storage/heap-dump/sample.hprof");
         Path importIndexFile = root.resolve("meta/import-index.json");
         Path logFile = root.resolve("logs/jifa-server.log");
+        Path runtimeFile = root.resolve("runtime/dev-snapshot/arthas-jifa-server-helper.jar");
 
         Files.createDirectories(storageFile.getParent());
         Files.createDirectories(importIndexFile.getParent());
         Files.createDirectories(logFile.getParent());
+        Files.createDirectories(runtimeFile.getParent());
         Files.writeString(storageFile, "heap-dump-data");
         Files.writeString(importIndexFile, "{\"version\":1,\"entries\":{\"sample\":{}}}");
         Files.writeString(logFile, "server-log-data");
+        writeDummyJar(runtimeFile);
 
         JifaWebRuntimeService.CacheSummary summary = service.loadCacheSummary();
 
         assertEquals(root, summary.rootDirectory());
-        assertEquals(3L, summary.totalFileCount());
+        assertEquals(4L, summary.totalFileCount());
         assertEquals(1, summary.importedEntryCount());
         assertTrue(summary.totalSizeBytes() > 0);
+        assertEquals(1L, summary.runtime().fileCount());
 
         JifaWebRuntimeService.CacheSummary afterMetadataClear = service.clearMetadata();
-        assertEquals(1L, afterMetadataClear.totalFileCount());
+        assertEquals(2L, afterMetadataClear.totalFileCount());
         assertEquals(0, afterMetadataClear.importedEntryCount());
         assertTrue(Files.exists(root.resolve("logs/jifa-server.log")));
+        assertTrue(Files.exists(runtimeFile));
         assertFalse(Files.exists(storageFile));
         assertFalse(Files.exists(importIndexFile));
 
@@ -96,7 +102,9 @@ public class JifaWebRuntimeServiceTest {
         assertTrue(Files.isDirectory(root.resolve("storage")));
         assertTrue(Files.isDirectory(root.resolve("meta")));
         assertTrue(Files.isDirectory(root.resolve("logs")));
+        assertTrue(Files.isDirectory(root.resolve("runtime")));
         assertFalse(Files.exists(logFile));
+        assertFalse(Files.exists(runtimeFile));
     }
 
     @Test
@@ -106,11 +114,8 @@ public class JifaWebRuntimeServiceTest {
         FakeJifaServer server = new FakeJifaServer();
         try {
             Path threadDump = copyFixture(
-                    "jifa/analysis/thread-dump/src/test/resources/jstack_8.log",
-                    temporaryFolder.newFile("sample-thread-dump.log").toPath());
-            Path gcLog = copyFixture(
-                    "jifa/analysis/gc-log/src/test/resources/17G1Parser.log",
-                    temporaryFolder.newFile("sample-gc.log").toPath());
+                    temporaryFolder.newFile("sample-thread-dump.log").toPath(), threadDumpContent());
+            Path gcLog = copyFixture(temporaryFolder.newFile("sample-gc.log").toPath(), gcLogContent());
 
             JifaWebRuntimeService.SyncSummary initial =
                     sync(service, server.serverHandle(), List.of(threadDump, gcLog));
@@ -166,8 +171,7 @@ public class JifaWebRuntimeServiceTest {
         FakeJifaServer server = new FakeJifaServer();
         try {
             Path externalThreadDump = copyFixture(
-                    "jifa/analysis/thread-dump/src/test/resources/jstack_8.log",
-                    temporaryFolder.newFile("external-thread-dump.log").toPath());
+                    temporaryFolder.newFile("external-thread-dump.log").toPath(), threadDumpContent());
 
             JifaWebRuntimeService.SyncSummary initial =
                     sync(service, server.serverHandle(), List.of(externalThreadDump));
@@ -181,9 +185,106 @@ public class JifaWebRuntimeServiceTest {
         }
     }
 
-    private Path copyFixture(String sourcePath, Path target) throws IOException {
-        Files.copy(Path.of(sourcePath), target, StandardCopyOption.REPLACE_EXISTING);
+    @Test
+    public void shouldDownloadAndCacheExternalHelperJar() throws Exception {
+        Path root = temporaryFolder.newFolder("jifa-runtime-root-download").toPath();
+        JifaWebRuntimeService service = new JifaWebRuntimeService(root);
+        Path sourceJar = temporaryFolder.newFile("helper-source.jar").toPath();
+        writeDummyJar(sourceJar);
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/helper.jar", exchange -> {
+            byte[] bytes = Files.readAllBytes(sourceJar);
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream output = exchange.getResponseBody()) {
+                output.write(bytes);
+            }
+        });
+        server.start();
+        String originalUrl = System.getProperty("arthas.workbench.jifa.helper.url");
+        String originalVersion = System.getProperty("arthas.workbench.jifa.helper.version");
+        try {
+            System.setProperty(
+                    "arthas.workbench.jifa.helper.url",
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/helper.jar");
+            System.setProperty("arthas.workbench.jifa.helper.version", "unit-test-version");
+
+            Path cached = service.ensureCachedHelperJar();
+
+            assertEquals(
+                    root.resolve("runtime").resolve("unit-test-version").resolve("arthas-jifa-server-helper.jar"),
+                    cached);
+            assertTrue(Files.isRegularFile(cached));
+            assertTrue(Files.size(cached) > 0L);
+        } finally {
+            restoreSystemProperty("arthas.workbench.jifa.helper.url", originalUrl);
+            restoreSystemProperty("arthas.workbench.jifa.helper.version", originalVersion);
+            server.stop(0);
+            service.dispose();
+        }
+    }
+
+    @Test
+    public void shouldPreferConfiguredHelperDirectoryWhenOfflineHelperIsProvided() throws Exception {
+        Path root = temporaryFolder.newFolder("jifa-runtime-root-configured").toPath();
+        JifaWebRuntimeService service = new JifaWebRuntimeService(root);
+        Path helperDirectory =
+                temporaryFolder.newFolder("configured-helper-dir").toPath();
+        Path helperJar = helperDirectory.resolve("arthas-jifa-server-helper.jar");
+        writeDummyJar(helperJar);
+
+        String originalPath = System.getProperty("arthas.workbench.jifa.helper.path");
+        try {
+            System.setProperty("arthas.workbench.jifa.helper.path", helperDirectory.toString());
+            assertEquals(helperJar, invokeResolveHelperJar(service));
+        } finally {
+            restoreSystemProperty("arthas.workbench.jifa.helper.path", originalPath);
+            service.dispose();
+        }
+    }
+
+    private Path copyFixture(Path target, String content) throws IOException {
+        Files.writeString(target, content, StandardCharsets.UTF_8);
         return target;
+    }
+
+    private String threadDumpContent() {
+        return """
+                2026-04-27 20:00:00
+                Full thread dump OpenJDK 64-Bit Server VM:
+
+                "main" #1 prio=5 os_prio=31 cpu=10.00ms elapsed=1.23s tid=0x1 nid=0x2 runnable  [0x0000000000000000]
+                   java.lang.Thread.State: RUNNABLE
+                """;
+    }
+
+    private String gcLogContent() {
+        return """
+                [0.123s][info][gc] Using G1
+                [0.456s][info][gc] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 32M->8M(256M) 4.567ms
+                """;
+    }
+
+    private void writeDummyJar(Path target) throws IOException {
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(target))) {
+            output.putNextEntry(new JarEntry("META-INF/MANIFEST.MF"));
+            output.write("Manifest-Version: 1.0\n\n".getBytes(StandardCharsets.UTF_8));
+            output.closeEntry();
+        }
+    }
+
+    private void restoreSystemProperty(String key, String value) {
+        if (value == null) {
+            System.clearProperty(key);
+            return;
+        }
+        System.setProperty(key, value);
+    }
+
+    private Path invokeResolveHelperJar(JifaWebRuntimeService service) throws Exception {
+        Method method = JifaWebRuntimeService.class.getDeclaredMethod("resolveHelperJar");
+        method.setAccessible(true);
+        return (Path) method.invoke(service);
     }
 
     @SuppressWarnings("unchecked")

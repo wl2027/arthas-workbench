@@ -14,47 +14,39 @@
 - GC 日志
 - thread dump
 
-IDEA 内嵌 JFR 入口已经下线，JFR 统一走浏览器版 Jifa Web。
+IDEA 内嵌 JFR/Jifa 分析入口已经下线，所有文件统一走浏览器版 Jifa Web。
 
 ## 代码组织
 
-- `jifa/`
-  作为 `git submodule` 挂载的 Jifa 源码，默认指向 `https://github.com/wl2027/jifa.git` 的 `arthas-workbench` 分支
-- `jifa-bridge/`
-  组合构建桥接层，把 Jifa 的分析模块映射成当前插件可直接依赖的 Gradle 模块
 - `src/main/java/com/alibaba/arthas/idea/workbench/service/JifaWebRuntimeService.java`
-  管理本地 Jifa Web 服务、文件同步、缓存和托管索引
+  负责 helper 解析、Jifa 本地服务启动、文件同步、缓存管理和导入索引
+- `src/main/java/com/alibaba/arthas/idea/workbench/analysis/JifaAnalysisFacade.java`
+  负责识别文件类型，决定目标文件能否交给 Jifa Web
 - `src/main/java/com/alibaba/arthas/idea/workbench/action/OpenInJifaWebAction.java`
-  提供右键入口
+  提供项目视图和编辑器中的右键入口
+- `jifa/`
+  仅作为 helper 发布和上游补丁维护使用的可选 submodule，不再参与主插件构建依赖
 
-## 为什么继续使用 Submodule
+## helper 解析优先级
 
-当前主仓不再 vendored 整份 Jifa 源码，而是保留子模块形式，原因是：
+插件在真正打开 Jifa 分析页时才解析 helper jar，优先级如下：
 
-- Jifa 本身是独立项目，单独维护历史更清晰
-- 主仓只需要记录一个明确的 Jifa 提交指针
-- 别人拉取主仓后，通过 `git submodule update --init --recursive` 就能复现依赖版本
+1. JVM 参数 `-Darthas.workbench.jifa.helper.path=...`
+2. Settings 中配置的 `Offline Helper Path`
+3. 插件目录 `lib/arthas-jifa-server-helper.jar`
+4. 工作区中手工构建出来的 `jifa/server/build/libs/jifa.jar`
+5. 自动下载并缓存到 `~/.arthas-workbench-plugin/jifa/runtime/<version>/arthas-jifa-server-helper.jar`
 
-当前确实存在一处插件侧需要的 Jifa 补丁：
+其中离线路径支持两种形式：
 
-- `jifa/server/src/main/java/org/eclipse/jifa/server/configurer/HttpConfigurer.java`
-  增加 `/jfr-file-analysis/*` 的前端路由转发，保证浏览器直接打开 JFR 分析深链接时不会 404
+- 指向一个具体 jar 文件
+- 指向一个目录，目录里包含 `arthas-jifa-server-helper.jar` 或 `jifa.jar`
 
-这个补丁属于浏览器版 JFR 直达能力的一部分，不再和 IDEA 内嵌 JFR 有关系。
+这套设计的目标是：
 
-## 构建链路
-
-根项目通过 `settings.gradle.kts` 中的 `includeBuild("jifa-bridge")` 接入 Jifa 分析模块。
-
-同时，`build.gradle.kts` 会在需要时调用子模块自己的 `gradlew` 构建：
-
-- `jifa/server:bootJar`
-
-生成后，主仓会把产物复制到：
-
-- `build/generated/jifa-helper/arthas-jifa-server-helper.jar`
-
-这样 `runIde`、`prepareSandbox` 和 `buildPlugin` 都能把本地 Jifa helper server 一起带入插件沙箱。
+- 插件包本身保持很小
+- 在线环境首次使用即可自动准备 helper
+- 离线环境可以通过设置页显式指向本地 helper
 
 ## 缓存与托管目录
 
@@ -63,6 +55,7 @@ Jifa 浏览器版统一使用：
 - `~/.arthas-workbench-plugin/jifa/storage`
 - `~/.arthas-workbench-plugin/jifa/meta`
 - `~/.arthas-workbench-plugin/jifa/logs`
+- `~/.arthas-workbench-plugin/jifa/runtime`
 
 职责约定：
 
@@ -72,6 +65,8 @@ Jifa 浏览器版统一使用：
   服务状态和导入索引
 - `logs`
   helper server 运行日志
+- `runtime`
+  自动下载得到的 helper jar
 
 服务、缓存和索引都是全局共享的：
 
@@ -94,17 +89,42 @@ Jifa 浏览器版统一使用：
 
 这意味着它的行为等价于“被上传到本地 Jifa 并持续管理”，而不是一次性临时打开。
 
-## 初始化与验证
+## helper 构建与发布
 
-首次拉取主仓后，先执行：
+如果你需要更新默认自动下载的 helper jar，请按下面的流程操作：
+
+1. 初始化子模块：
 
 ```bash
 git submodule update --init --recursive
 ```
 
-推荐验证步骤：
+2. 构建 helper：
+
+```bash
+cd jifa
+./gradlew :server:bootJar --no-daemon
+```
+
+3. 构建产物位于：
+
+`jifa/server/build/libs/jifa.jar`
+
+4. 上传到主仓 `arthas-workbench` 的 GitHub Release 时，重命名为：
+
+`arthas-jifa-server-helper.jar`
+
+5. 插件默认下载地址为：
+
+`https://github.com/wl2027/arthas-workbench/releases/latest/download/arthas-jifa-server-helper.jar`
+
+因此 latest release 中需要存在这个同名资产。
+
+## 初始化与验证
+
+插件主构建不再要求先拉 Jifa submodule。常规验证步骤：
 
 ```bash
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew buildPlugin -x buildSearchableOptions -x jarSearchableOptions
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew buildPlugin
 ```

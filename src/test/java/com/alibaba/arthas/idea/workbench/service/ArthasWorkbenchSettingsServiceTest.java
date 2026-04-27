@@ -45,4 +45,14 @@ public class ArthasWorkbenchSettingsServiceTest {
         assertEquals("", settingsService.resolveGatewayToken());
         assertTrue(settingsService.getState().mcpGatewayToken.equals("stored-token"));
     }
+
+    @Test
+    public void shouldTrimConfiguredJifaHelperPath() {
+        ArthasWorkbenchSettingsService settingsService = new ArthasWorkbenchSettingsService();
+        ArthasWorkbenchSettingsService.SettingsState state = new ArthasWorkbenchSettingsService.SettingsState();
+        state.jifaHelperPath = "  /tmp/jifa-helper  ";
+        settingsService.updateState(state);
+
+        assertEquals("/tmp/jifa-helper", settingsService.resolveJifaHelperPath());
+    }
 }

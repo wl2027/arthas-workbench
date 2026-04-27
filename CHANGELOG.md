@@ -2,6 +2,16 @@
 
 # arthas-workbench Changelog
 
+## [0.0.5] - 2026-04-28
+### Added
+- Settings 页面新增 `Offline Helper Path`，支持为 Jifa Web 配置本地 helper jar 路径或 helper 目录，满足离线环境使用
+- Jifa 运行时缓存摘要新增 `runtime` 维度，便于定位已下载的 helper 版本和占用空间
+
+### Changed
+- 插件包不再内置 Jifa helper，改为在首次打开 Jifa Web 分析时按需自动下载并缓存
+- 插件主构建不再依赖 Jifa submodule；常规 `buildPlugin` / `runIde` / `test` 流程无需先初始化子模块
+- README 与 `docs/*` 同步更新为“运行时下载 helper + 可选离线路径”方案，并补充 helper 单独发布步骤
+
 ## [0.0.4] - 2026-04-27
 ### Added
 - 集成 Jifa Web 文件分析入口，支持从 IDEA 右键打开 `.jfr`、`.hprof`、GC 日志和 thread dump

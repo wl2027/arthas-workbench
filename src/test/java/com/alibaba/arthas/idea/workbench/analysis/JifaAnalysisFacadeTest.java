@@ -1,119 +1,54 @@
 package com.alibaba.arthas.idea.workbench.analysis;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.sun.management.HotSpotDiagnosticMXBean;
-import java.lang.management.ManagementFactory;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
-import org.eclipse.jifa.hda.api.Model;
 import org.junit.Test;
 
 /**
- * Jifa 分析门面的集成回归测试。
+ * 轻量文件类型识别回归测试。
  */
 public class JifaAnalysisFacadeTest {
 
-    private static Path heapDump;
-
     @Test
     public void shouldDetectSupportedArtifactTypes() throws Exception {
-        assertEquals(
-                JifaArtifactType.JFR,
-                JifaAnalysisFacade.detect(projectPath("jifa/analysis/jfr/src/test/resources/jfr.jfr"))
-                        .type());
-        assertEquals(
-                JifaArtifactType.GC_LOG,
-                JifaAnalysisFacade.detect(projectPath("jifa/analysis/gc-log/src/test/resources/17G1Parser.log"))
-                        .type());
+        Path jfr = createTempFile("sample", ".jfr", "FLR\0fake-jfr");
+        Path hprof = createTempFile("sample", ".hprof", "JAVA PROFILE 1.0.2");
+        Path threadDump = createTempFile("thread-dump", ".log", """
+                        2026-04-27 20:00:00
+                        Full thread dump OpenJDK 64-Bit Server VM:
+
+                        "main" #1 prio=5 tid=0x1 nid=0x2 runnable
+                           java.lang.Thread.State: RUNNABLE
+                        """);
+        Path gcLog = createTempFile("gc", ".log", """
+                        [0.123s][info][gc] Using G1
+                        [0.456s][info][gc] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 32M->8M(256M) 4.567ms
+                        """);
+
+        assertEquals(JifaArtifactType.JFR, JifaAnalysisFacade.detect(jfr).type());
+        assertEquals(JifaArtifactType.HPROF, JifaAnalysisFacade.detect(hprof).type());
         assertEquals(
                 JifaArtifactType.THREAD_DUMP,
-                JifaAnalysisFacade.detect(projectPath("jifa/analysis/thread-dump/src/test/resources/jstack_8.log"))
-                        .type());
-        Path heapDump = createHeapDump();
-        assertEquals(JifaArtifactType.HPROF, JifaAnalysisFacade.detect(heapDump).type());
+                JifaAnalysisFacade.detect(threadDump).type());
+        assertEquals(JifaArtifactType.GC_LOG, JifaAnalysisFacade.detect(gcLog).type());
+        assertTrue(JifaAnalysisFacade.isSupported(gcLog));
     }
 
     @Test
-    public void shouldAnalyzeJfrFileWithEmbeddedJifa() throws Exception {
-        JifaArtifactDescriptor descriptor =
-                JifaAnalysisFacade.detect(projectPath("jifa/analysis/jfr/src/test/resources/jfr.jfr"));
-        JifaAnalysisResult result = JifaAnalysisFacade.analyze(descriptor, null);
-
-        assertTrue(result instanceof JifaJfrAnalysisResult);
-        JifaJfrAnalysisResult jfrResult = (JifaJfrAnalysisResult) result;
-        assertTrue(jfrResult.getMetadata().getPerfDimensions().length > 0);
-        assertNotNull(jfrResult.getResult());
+    public void shouldRejectUnsupportedFiles() throws Exception {
+        Path plainText = createTempFile("readme", ".txt", "hello world");
+        assertNull(JifaAnalysisFacade.detect(plainText));
+        assertTrue(!JifaAnalysisFacade.isSupported(plainText));
     }
 
-    @Test
-    public void shouldAnalyzeGcLogWithEmbeddedJifa() throws Exception {
-        JifaArtifactDescriptor descriptor =
-                JifaAnalysisFacade.detect(projectPath("jifa/analysis/gc-log/src/test/resources/17G1Parser.log"));
-        JifaAnalysisResult result = JifaAnalysisFacade.analyze(descriptor, null);
-
-        assertTrue(result instanceof JifaGcLogAnalysisResult);
-        JifaGcLogAnalysisResult gcResult = (JifaGcLogAnalysisResult) result;
-        assertEquals("G1 GC", gcResult.getMetadata().getCollector());
-        assertTrue(gcResult.getModel().getGcEvents().size() > 0);
-    }
-
-    @Test
-    public void shouldAnalyzeThreadDumpWithEmbeddedJifa() throws Exception {
-        JifaArtifactDescriptor descriptor =
-                JifaAnalysisFacade.detect(projectPath("jifa/analysis/thread-dump/src/test/resources/jstack_8.log"));
-        JifaAnalysisResult result = JifaAnalysisFacade.analyze(descriptor, null);
-
-        assertTrue(result instanceof JifaThreadDumpAnalysisResult);
-        JifaThreadDumpAnalysisResult threadDumpResult = (JifaThreadDumpAnalysisResult) result;
-        assertTrue(threadDumpResult.getThreads().getData().size() > 0);
-        assertNotNull(threadDumpResult.getOverview());
-    }
-
-    @Test
-    public void shouldAnalyzeHeapDumpWithEmbeddedJifa() throws Exception {
-        Path heapDump = createHeapDump();
-        JifaArtifactDescriptor descriptor = JifaAnalysisFacade.detect(heapDump);
-        JifaAnalysisResult result = JifaAnalysisFacade.analyze(descriptor, null, true);
-
-        assertTrue(result instanceof JifaHprofAnalysisResult);
-        JifaHprofAnalysisResult heapDumpResult = (JifaHprofAnalysisResult) result;
-        assertNotNull(heapDumpResult.getDetails());
-        assertTrue(heapDumpResult.getDetails().getNumberOfObjects() > 0);
-        List<Model.Thread.Item> threads = heapDumpResult
-                .getAnalyzer()
-                .getThreads("retainedHeap", false, "", org.eclipse.jifa.hda.api.SearchType.BY_NAME, 1, 50)
-                .getData();
-        assertNotNull(threads);
-        Model.Thread.Item threadWithStack = threads.stream()
-                .filter(Model.Thread.Item::isHasStack)
-                .findFirst()
-                .orElse(null);
-        if (threadWithStack != null) {
-            assertTrue(heapDumpResult
-                            .getAnalyzer()
-                            .getStackTrace(threadWithStack.getObjectId())
-                            .size()
-                    > 0);
-        }
-    }
-
-    private Path projectPath(String relativePath) {
-        return Path.of(relativePath).toAbsolutePath().normalize();
-    }
-
-    private Path createHeapDump() throws Exception {
-        if (heapDump != null) {
-            return heapDump;
-        }
-        Path directory = Files.createTempDirectory("arthas-workbench-hprof");
-        heapDump = Files.createTempFile(directory, "sample", ".hprof").toAbsolutePath();
-        Files.delete(heapDump);
-        HotSpotDiagnosticMXBean bean = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
-        bean.dumpHeap(heapDump.toString(), false);
-        return heapDump;
+    private Path createTempFile(String prefix, String suffix, String content) throws Exception {
+        Path file = Files.createTempFile(prefix, suffix);
+        Files.writeString(file, content, StandardCharsets.UTF_8);
+        return file;
     }
 }

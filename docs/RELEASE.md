@@ -7,7 +7,7 @@
 ```bash
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew spotlessApply
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew test
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew buildPlugin -x buildSearchableOptions -x jarSearchableOptions
+JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew buildPlugin
 JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew verifyPlugin
 ```
 
@@ -16,21 +16,54 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew verifyPlugin
 - 更新 `gradle.properties` 中的 `pluginVersion`
 - 更新 `CHANGELOG.md`
 - 检查 `README.md`、截图、图标和文档是否需要同步
-- 确认 `jifa/` submodule 已初始化并指向预期提交；如有本地 Jifa 补丁，需先在子模块仓库完成提交
 - 确认插件元数据、仓库地址、vendor 信息无误
 - 使用 JDK 21 显式执行 `verifyPlugin`，避免本地默认 `JAVA_HOME` 干扰 `instrumentCode`
 - 确认构建产物可以在本地 IDEA 中安装
 
-## GitHub Actions 相关
+## 插件发布产物
 
-仓库已包含默认的构建、发布和 UI 测试工作流模板。实际发布前，请确认以下 secret 已准备好：
+插件包：
 
-- `PUBLISH_TOKEN`
-- `CERTIFICATE_CHAIN`
-- `PRIVATE_KEY`
-- `PRIVATE_KEY_PASSWORD`
+- `build/distributions/arthas-workbench-<version>.zip`
 
-如果暂时不发布到 JetBrains Marketplace，也可以只保留本地打包和 GitHub Release 产物分发。
+这个 zip 可以直接在 IDEA 中通过 `Install Plugin from Disk...` 安装。
+
+## Jifa helper 发布产物
+
+Jifa helper 不再内置到插件 zip 中，而是单独作为 Release 资产发布，供插件运行时下载。
+
+构建步骤：
+
+1. 初始化子模块：
+
+```bash
+git submodule update --init --recursive
+```
+
+2. 构建 helper：
+
+```bash
+cd jifa
+./gradlew :server:bootJar --no-daemon
+```
+
+3. 产物路径：
+
+`jifa/server/build/libs/jifa.jar`
+
+4. 上传到主仓 release 时重命名为：
+
+`arthas-jifa-server-helper.jar`
+
+5. 与插件包一起上传到：
+
+[wl2027/arthas-workbench Releases](https://github.com/wl2027/arthas-workbench/releases)
+
+插件默认下载地址固定为：
+
+`https://github.com/wl2027/arthas-workbench/releases/latest/download/arthas-jifa-server-helper.jar`
+
+因此 latest release 中必须存在这个同名资产。
 
 ## 发布后建议
 

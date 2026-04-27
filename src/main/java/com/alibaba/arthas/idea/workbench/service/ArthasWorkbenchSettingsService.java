@@ -58,6 +58,14 @@ public final class ArthasWorkbenchSettingsService
     }
 
     /**
+     * 解析用户在设置页中配置的 Jifa helper 覆盖路径。
+     * 允许为空；非空时由运行时进一步判断它是 jar 文件还是包含 helper 的目录。
+     */
+    public String resolveJifaHelperPath() {
+        return state.jifaHelperPath == null ? "" : state.jifaHelperPath.trim();
+    }
+
+    /**
      * 解析当前 Gateway 应生效的认证 Token。
      * 随机模式会在首次需要时生成并保留到持久化状态中，保证外部客户端可稳定复用。
      */
@@ -91,6 +99,7 @@ public final class ArthasWorkbenchSettingsService
         public String mcpGatewayToken = "";
         public String mcpPasswordMode = McpPasswordMode.RANDOM.name();
         public String mcpPassword = "";
+        public String jifaHelperPath = "";
         public boolean autoOpenTerminal = true;
         public boolean autoOpenWebUi = true;
     }

@@ -36,6 +36,7 @@ public class ArthasWorkbenchSettingsPanelTest {
         state.mcpGatewayToken = "gateway-token";
         state.mcpPasswordMode = McpPasswordMode.FIXED.name();
         state.mcpPassword = "secret";
+        state.jifaHelperPath = "/tmp/jifa-helper";
         state.autoOpenTerminal = true;
         state.autoOpenWebUi = false;
 
@@ -43,6 +44,7 @@ public class ArthasWorkbenchSettingsPanelTest {
         panel.resetFrom(state);
 
         assertFalse(panel.isModified(state));
+        assertEquals("/tmp/jifa-helper", panel.getJifaHelperPath());
 
         panel.setSourceType(PackageSourceType.LOCAL_PATH);
         panel.setSourceValue("/tmp/arthas");
@@ -54,6 +56,7 @@ public class ArthasWorkbenchSettingsPanelTest {
         panel.setMcpGatewayToken("changed-gateway-token");
         panel.setMcpPasswordMode(McpPasswordMode.DISABLED);
         panel.setMcpPassword("changed");
+        panel.setJifaHelperPath("/opt/jifa-helper-dir");
         panel.setAutoOpenTerminal(false);
         panel.setAutoOpenWebUi(true);
 
@@ -70,6 +73,7 @@ public class ArthasWorkbenchSettingsPanelTest {
         assertEquals("changed-gateway-token", updated.mcpGatewayToken);
         assertEquals(McpPasswordMode.DISABLED.name(), updated.mcpPasswordMode);
         assertEquals("changed", updated.mcpPassword);
+        assertEquals("/opt/jifa-helper-dir", updated.jifaHelperPath);
         assertFalse(updated.autoOpenTerminal);
         assertTrue(updated.autoOpenWebUi);
     }
@@ -207,6 +211,7 @@ public class ArthasWorkbenchSettingsPanelTest {
 
         ArthasWorkbenchSettingsPanel panel = new ArthasWorkbenchSettingsPanel(null, controller);
 
+        assertEquals("", panel.getJifaHelperPath());
         assertEquals(root.toString(), panel.getJifaCacheRoot());
         assertTrue(panel.getJifaCacheOverviewText().contains("5 files"));
         assertTrue(panel.getJifaCacheMetadataText().contains("Imported mappings: 2"));
@@ -226,12 +231,14 @@ public class ArthasWorkbenchSettingsPanelTest {
     private JifaWebRuntimeService.CacheSummary cacheSummary(
             Path root, long totalFiles, long totalBytes, int importedEntries, boolean running, int port) {
         JifaWebRuntimeService.DirectorySummary storage =
-                new JifaWebRuntimeService.DirectorySummary(root.resolve("storage"), totalBytes / 2, 1L, 0L);
+                new JifaWebRuntimeService.DirectorySummary(root.resolve("storage"), totalBytes / 2, 2L, 0L);
         JifaWebRuntimeService.DirectorySummary metadata =
                 new JifaWebRuntimeService.DirectorySummary(root.resolve("meta"), totalBytes / 4, 1L, 0L);
         JifaWebRuntimeService.DirectorySummary logs =
-                new JifaWebRuntimeService.DirectorySummary(root.resolve("logs"), totalBytes / 4, 1L, 0L);
+                new JifaWebRuntimeService.DirectorySummary(root.resolve("logs"), totalBytes / 8, 1L, 0L);
+        JifaWebRuntimeService.DirectorySummary runtime =
+                new JifaWebRuntimeService.DirectorySummary(root.resolve("runtime"), totalBytes / 8, 1L, 0L);
         return new JifaWebRuntimeService.CacheSummary(
-                root, storage, metadata, logs, totalBytes, totalFiles, importedEntries, running, port, 1L);
+                root, storage, metadata, logs, runtime, totalBytes, totalFiles, importedEntries, running, port, 1L);
     }
 }

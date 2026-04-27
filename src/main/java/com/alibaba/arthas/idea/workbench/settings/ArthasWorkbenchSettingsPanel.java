@@ -94,11 +94,15 @@ public final class ArthasWorkbenchSettingsPanel {
 
     private final JBCheckBox autoOpenTerminalCheckBox = new JBCheckBox(message("settings.auto.open.terminal"));
     private final JBCheckBox autoOpenWebUiCheckBox = new JBCheckBox(message("settings.auto.open.web_ui"));
+    private final JBTextField jifaHelperPathField = new JBTextField();
+    private final JButton browseJifaHelperPathButton = new JButton(message("settings.action.browse"));
+    private final JButton clearJifaHelperPathButton = new JButton(message("settings.action.clear"));
     private final JBTextField jifaCacheRootField = new JBTextField();
     private final JBLabel jifaCacheOverviewLabel = new JBLabel();
     private final JBLabel jifaCacheStorageLabel = new JBLabel();
     private final JBLabel jifaCacheMetadataLabel = new JBLabel();
     private final JBLabel jifaCacheLogsLabel = new JBLabel();
+    private final JBLabel jifaCacheRuntimeLabel = new JBLabel();
     private final JBLabel jifaCacheServerLabel = new JBLabel();
     private final JBLabel jifaCacheStatusLabel = new JBLabel();
     private final JButton refreshJifaCacheButton = new JButton(message("settings.action.refresh"));
@@ -160,6 +164,7 @@ public final class ArthasWorkbenchSettingsPanel {
         mcpGatewayTokenField.setText(state.mcpGatewayToken);
         mcpPasswordModeCombo.setSelectedItem(mcpPasswordMode);
         mcpPasswordField.setText(state.mcpPassword);
+        jifaHelperPathField.setText(state.jifaHelperPath == null ? "" : state.jifaHelperPath.trim());
         autoOpenTerminalCheckBox.setSelected(state.autoOpenTerminal);
         autoOpenWebUiCheckBox.setSelected(state.autoOpenWebUi);
 
@@ -186,6 +191,7 @@ public final class ArthasWorkbenchSettingsPanel {
         state.mcpGatewayToken = resolveGatewayTokenForSaving();
         state.mcpPasswordMode = currentMcpPasswordMode().name();
         state.mcpPassword = new String(mcpPasswordField.getPassword());
+        state.jifaHelperPath = jifaHelperPathField.getText().trim();
         state.autoOpenTerminal = autoOpenTerminalCheckBox.isSelected();
         state.autoOpenWebUi = autoOpenWebUiCheckBox.isSelected();
         return state;
@@ -212,6 +218,8 @@ public final class ArthasWorkbenchSettingsPanel {
                         McpPasswordMode.fromValue(state.mcpPasswordMode, state.mcpPassword)
                                 .name())
                 || !Objects.equals(current.mcpPassword, state.mcpPassword)
+                || !Objects.equals(
+                        current.jifaHelperPath, state.jifaHelperPath == null ? "" : state.jifaHelperPath.trim())
                 || current.autoOpenTerminal != state.autoOpenTerminal
                 || current.autoOpenWebUi != state.autoOpenWebUi;
     }
@@ -265,6 +273,10 @@ public final class ArthasWorkbenchSettingsPanel {
         autoOpenWebUiCheckBox.setSelected(value);
     }
 
+    void setJifaHelperPath(String value) {
+        jifaHelperPathField.setText(value);
+    }
+
     boolean isSourceValueEditable() {
         return sourceValueField.isEditable();
     }
@@ -303,6 +315,10 @@ public final class ArthasWorkbenchSettingsPanel {
 
     String getJifaCacheRoot() {
         return jifaCacheRootField.getText();
+    }
+
+    String getJifaHelperPath() {
+        return jifaHelperPathField.getText();
     }
 
     String getJifaCacheOverviewText() {
@@ -410,6 +426,8 @@ public final class ArthasWorkbenchSettingsPanel {
     private JPanel createJifaCacheSection() {
         JPanel panel = createSectionPanel("settings.section.jifa.cache");
         GridBagConstraints gc = sectionConstraints();
+        addField(panel, gc, "settings.jifa.helper.path", createJifaHelperPathPanel());
+        addRow(panel, gc, createNoteArea(message("settings.jifa.helper.path.note")));
         jifaCacheRootField.setEditable(false);
         jifaCacheRootField.setFocusable(false);
         jifaCacheRootField.putClientProperty("JTextField.showClearButton", false);
@@ -418,6 +436,7 @@ public final class ArthasWorkbenchSettingsPanel {
         addField(panel, gc, "settings.jifa.cache.storage", jifaCacheStorageLabel);
         addField(panel, gc, "settings.jifa.cache.metadata", jifaCacheMetadataLabel);
         addField(panel, gc, "settings.jifa.cache.logs", jifaCacheLogsLabel);
+        addField(panel, gc, "settings.jifa.cache.runtime", jifaCacheRuntimeLabel);
         addField(panel, gc, "settings.jifa.cache.server", jifaCacheServerLabel);
         addRow(panel, gc, createJifaCacheActions());
         addRow(panel, gc, jifaCacheStatusLabel);
@@ -511,6 +530,16 @@ public final class ArthasWorkbenchSettingsPanel {
         return panel;
     }
 
+    private JPanel createJifaHelperPathPanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 0));
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        buttons.add(browseJifaHelperPathButton);
+        buttons.add(clearJifaHelperPathButton);
+        panel.add(jifaHelperPathField, BorderLayout.CENTER);
+        panel.add(buttons, BorderLayout.EAST);
+        return panel;
+    }
+
     /**
      * 所有联动逻辑都集中在这里，避免 UI 更新散落在各个 setter 中。
      */
@@ -538,6 +567,8 @@ public final class ArthasWorkbenchSettingsPanel {
                 message("settings.jifa.cache.status.clearing.all"),
                 "settings.jifa.cache.notify.all_cleared",
                 jifaCacheController::clearAll));
+        browseJifaHelperPathButton.addActionListener(event -> chooseJifaHelperPath());
+        clearJifaHelperPathButton.addActionListener(event -> jifaHelperPathField.setText(""));
         sourceValueField.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
@@ -567,6 +598,29 @@ public final class ArthasWorkbenchSettingsPanel {
             File selected = chooser.getSelectedFile();
             sourceValueField.setText(selected.getAbsolutePath());
             sourceValueDrafts.put(sourceType, selected.getAbsolutePath());
+        }
+    }
+
+    private void chooseJifaHelperPath() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+        chooser.setDialogTitle(message("settings.jifa.helper.path.dialog"));
+        chooser.setApproveButtonText(message("settings.action.select"));
+        String configuredPath = jifaHelperPathField.getText().trim();
+        if (!configuredPath.isBlank()) {
+            File configured = new File(configuredPath);
+            File candidate = configured.isDirectory() ? configured : configured.getParentFile();
+            if (candidate != null && candidate.exists()) {
+                chooser.setCurrentDirectory(candidate);
+            }
+        } else if (project != null && project.getBasePath() != null) {
+            chooser.setCurrentDirectory(new File(project.getBasePath()));
+        }
+        if (chooser.showOpenDialog(rootPanel) == JFileChooser.APPROVE_OPTION) {
+            File selected = chooser.getSelectedFile();
+            if (selected != null) {
+                jifaHelperPathField.setText(selected.getAbsolutePath());
+            }
         }
     }
 
@@ -768,6 +822,10 @@ public final class ArthasWorkbenchSettingsPanel {
                 "settings.jifa.cache.summary.directory",
                 summary.logs().fileCount(),
                 formatBytes(summary.logs().sizeBytes())));
+        jifaCacheRuntimeLabel.setText(message(
+                "settings.jifa.cache.summary.directory",
+                summary.runtime().fileCount(),
+                formatBytes(summary.runtime().sizeBytes())));
         jifaCacheServerLabel.setText(
                 summary.serverRunning()
                         ? message("settings.jifa.cache.summary.server.running", summary.serverPort())
@@ -781,8 +839,10 @@ public final class ArthasWorkbenchSettingsPanel {
                 new JifaWebRuntimeService.DirectorySummary(rootDirectory.resolve("meta"), 0L, 0L, 0L);
         JifaWebRuntimeService.DirectorySummary logs =
                 new JifaWebRuntimeService.DirectorySummary(rootDirectory.resolve("logs"), 0L, 0L, 0L);
+        JifaWebRuntimeService.DirectorySummary runtime =
+                new JifaWebRuntimeService.DirectorySummary(rootDirectory.resolve("runtime"), 0L, 0L, 0L);
         return new JifaWebRuntimeService.CacheSummary(
-                rootDirectory, storage, metadata, logs, 0L, 0L, 0, false, -1, System.currentTimeMillis());
+                rootDirectory, storage, metadata, logs, runtime, 0L, 0L, 0, false, -1, System.currentTimeMillis());
     }
 
     private static JifaCacheController defaultJifaCacheController() {
