@@ -243,6 +243,17 @@ public class JifaWebRuntimeServiceTest {
         }
     }
 
+    @Test
+    public void shouldResolveJavaExecutableFromJavaHomeInsteadOfCurrentProcessCommand() throws Exception {
+        Path fakeJavaHome = temporaryFolder.newFolder("fake-java-home").toPath();
+        Path fakeJava = Files.createDirectories(fakeJavaHome.resolve("bin")).resolve("java");
+        Files.writeString(fakeJava, "#!/bin/sh\n");
+
+        Path resolved = JifaWebRuntimeService.resolveJavaExecutable(fakeJavaHome, "Mac OS X");
+
+        assertEquals(fakeJava.toAbsolutePath().normalize(), resolved);
+    }
+
     private Path copyFixture(Path target, String content) throws IOException {
         Files.writeString(target, content, StandardCharsets.UTF_8);
         return target;

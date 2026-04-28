@@ -872,11 +872,19 @@ public final class JifaWebRuntimeService implements Disposable {
     }
 
     private String currentJavaExecutable() {
-        return ProcessHandle.current().info().command().orElseGet(() -> {
-            String executable =
-                    System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "java.exe" : "java";
-            return Path.of(System.getProperty("java.home"), "bin", executable).toString();
-        });
+        return resolveJavaExecutable(Path.of(System.getProperty("java.home")), System.getProperty("os.name", ""))
+                .toString();
+    }
+
+    static Path resolveJavaExecutable(Path javaHome, String osName) {
+        Objects.requireNonNull(javaHome, "javaHome");
+        String executable = osName.toLowerCase(Locale.ROOT).contains("win") ? "java.exe" : "java";
+        Path candidate =
+                javaHome.resolve("bin").resolve(executable).toAbsolutePath().normalize();
+        if (Files.isRegularFile(candidate)) {
+            return candidate;
+        }
+        throw new IllegalStateException("Unable to locate java executable under java.home: " + candidate);
     }
 
     private void stopManagedServer() throws IOException {
