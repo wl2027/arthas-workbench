@@ -2,6 +2,14 @@
 
 # arthas-workbench Changelog
 
+## [0.0.6] - 2026-04-28
+### Fixed
+- 修复 `Open in Jifa Web` 在 IDEA 中错误复用当前 IDE 启动命令的问题；Jifa helper 现在会稳定使用当前 JBR 的 `java.home/bin/java` 启动，不再弹出 LightEdit 参数窗口，覆盖 issue `#11`
+- 修复 Jifa Web 打开与设置页相关的关闭竞态，避免在项目或设置页已经销毁后继续回调 UI，降低关闭 IDE 时触发异常的风险
+
+### Changed
+- Jifa Web 打开链路不再依赖 IntelliJ 的 `Task.Backgroundable` 进度任务，而是改为普通后台线程执行，减少关闭 IDE 时与平台 progress 生命周期的耦合
+
 ## [0.0.5] - 2026-04-28
 ### Added
 - Settings 页面新增 `Offline Helper Path`，支持为 Jifa Web 配置本地 helper jar 路径或 helper 目录，满足离线环境使用
