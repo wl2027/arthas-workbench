@@ -37,6 +37,9 @@ public final class UiToolkit {
     }
 
     public static void openInBrowser(Project project, String url) {
+        if (!isProjectAlive(project)) {
+            return;
+        }
         try {
             if (!Desktop.isDesktopSupported()) {
                 throw new IllegalStateException(message("util.ui.error.browser_unsupported"));
@@ -48,6 +51,9 @@ public final class UiToolkit {
     }
 
     public static void openDirectory(Project project, String path) {
+        if (!isProjectAlive(project)) {
+            return;
+        }
         try {
             if (!Desktop.isDesktopSupported()) {
                 throw new IllegalStateException(message("util.ui.error.directory_unsupported"));
@@ -96,7 +102,14 @@ public final class UiToolkit {
                 + (suffixLength == 0 ? "" : " " + normalized.substring(normalized.length() - suffixLength));
     }
 
+    public static boolean isProjectAlive(Project project) {
+        return project == null || !project.isDisposed();
+    }
+
     private static void notify(Project project, String message, NotificationType type) {
+        if (!isProjectAlive(project)) {
+            return;
+        }
         NotificationGroupManager.getInstance()
                 .getNotificationGroup(NOTIFICATION_GROUP)
                 .createNotification(message, type)

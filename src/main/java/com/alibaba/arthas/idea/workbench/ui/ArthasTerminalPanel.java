@@ -168,7 +168,15 @@ public final class ArthasTerminalPanel extends JPanel implements Disposable {
     }
 
     private void runOnEdt(Runnable runnable) {
-        ApplicationManager.getApplication().invokeLater(runnable);
+        if (disposed || ApplicationManager.getApplication().isDisposed()) {
+            return;
+        }
+        ApplicationManager.getApplication().invokeLater(() -> {
+            if (disposed || ApplicationManager.getApplication().isDisposed()) {
+                return;
+            }
+            runnable.run();
+        });
     }
 
     private JBTextArea createStatusArea() {

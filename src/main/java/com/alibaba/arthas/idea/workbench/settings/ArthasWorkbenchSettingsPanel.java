@@ -13,6 +13,7 @@ import com.alibaba.arthas.idea.workbench.service.JifaWebRuntimeService;
 import com.alibaba.arthas.idea.workbench.util.McpConfigFormatter;
 import com.alibaba.arthas.idea.workbench.util.UiToolkit;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBLabel;
@@ -113,6 +114,7 @@ public final class ArthasWorkbenchSettingsPanel {
     private final JBTextArea settingsNoteArea = createNoteArea(message("settings.note"));
     private PackageSourceType lastSourceType = PackageSourceType.OFFICIAL_LATEST;
     private boolean syncingSourceUi;
+    private volatile boolean disposed;
 
     public ArthasWorkbenchSettingsPanel(Project project) {
         this(project, defaultJifaCacheController(), true);
@@ -135,6 +137,10 @@ public final class ArthasWorkbenchSettingsPanel {
 
     public JComponent getComponent() {
         return rootPanel;
+    }
+
+    void dispose() {
+        disposed = true;
     }
 
     /**
@@ -756,6 +762,9 @@ public final class ArthasWorkbenchSettingsPanel {
     }
 
     private void runJifaCacheTask(String busyMessage, String successNotificationKey, CacheSummarySupplier supplier) {
+        if (!isUiContextAlive()) {
+            return;
+        }
         setJifaCacheBusy(true, busyMessage);
         if (!runJifaCacheTasksAsync || ApplicationManager.getApplication() == null) {
             runJifaCacheTaskNow(successNotificationKey, supplier);
@@ -772,6 +781,9 @@ public final class ArthasWorkbenchSettingsPanel {
     }
 
     private void runJifaCacheTaskNow(String successNotificationKey, CacheSummarySupplier supplier) {
+        if (!isUiContextAlive()) {
+            return;
+        }
         try {
             completeJifaCacheTask(supplier.get(), successNotificationKey);
         } catch (Exception exception) {
@@ -780,6 +792,9 @@ public final class ArthasWorkbenchSettingsPanel {
     }
 
     private void completeJifaCacheTask(JifaWebRuntimeService.CacheSummary summary, String successNotificationKey) {
+        if (!isUiContextAlive()) {
+            return;
+        }
         applyJifaCacheSummary(summary);
         setJifaCacheBusy(
                 false, message("settings.jifa.cache.status.ready", formatDateTime(summary.generatedAtEpochMillis())));
@@ -789,11 +804,17 @@ public final class ArthasWorkbenchSettingsPanel {
     }
 
     private void failJifaCacheTask(Exception exception) {
+        if (!isUiContextAlive()) {
+            return;
+        }
         setJifaCacheBusy(false, message("settings.jifa.cache.status.failed", exception.getMessage()));
         notifyJifaCacheError(message("settings.jifa.cache.status.failed", exception.getMessage()));
     }
 
     private void setJifaCacheBusy(boolean busy, String statusText) {
+        if (disposed) {
+            return;
+        }
         refreshJifaCacheButton.setEnabled(!busy);
         openJifaCacheDirectoryButton.setEnabled(!busy);
         clearJifaLogsButton.setEnabled(!busy);
@@ -803,6 +824,9 @@ public final class ArthasWorkbenchSettingsPanel {
     }
 
     private void applyJifaCacheSummary(JifaWebRuntimeService.CacheSummary summary) {
+        if (disposed) {
+            return;
+        }
         jifaCacheRootField.setText(summary.rootDirectory().toString());
         jifaCacheRootField.setToolTipText(summary.rootDirectory().toString());
         jifaCacheOverviewLabel.setText(message(
@@ -856,22 +880,33 @@ public final class ArthasWorkbenchSettingsPanel {
     }
 
     private void runOnUiThread(Runnable runnable) {
+        if (!isUiContextAlive()) {
+            return;
+        }
         if (ApplicationManager.getApplication() == null) {
             runnable.run();
             return;
         }
-        ApplicationManager.getApplication().invokeLater(runnable);
+        ApplicationManager.getApplication()
+                .invokeLater(
+                        () -> {
+                            if (!isUiContextAlive()) {
+                                return;
+                            }
+                            runnable.run();
+                        },
+                        ModalityState.any());
     }
 
     private void notifyJifaCacheInfo(String text) {
-        if (ApplicationManager.getApplication() == null) {
+        if (!isUiContextAlive() || ApplicationManager.getApplication() == null) {
             return;
         }
         UiToolkit.notifyInfo(project, text);
     }
 
     private void notifyJifaCacheError(String text) {
-        if (ApplicationManager.getApplication() == null) {
+        if (!isUiContextAlive() || ApplicationManager.getApplication() == null) {
             return;
         }
         UiToolkit.notifyError(project, text);
@@ -946,7 +981,7 @@ public final class ArthasWorkbenchSettingsPanel {
      * 重新下载官方最新版包，并覆盖本地缓存，方便用户在不离开 Settings 的情况下主动刷新最新版本。
      */
     private void updateOfficialLatestPackage() {
-        if (currentSourceType() != PackageSourceType.OFFICIAL_LATEST) {
+        if (currentSourceType() != PackageSourceType.OFFICIAL_LATEST || !isUiContextAlive()) {
             return;
         }
         updateOfficialLatestPackageButton.setEnabled(false);
@@ -956,12 +991,12 @@ public final class ArthasWorkbenchSettingsPanel {
                 ArthasPackageService packageService =
                         ApplicationManager.getApplication().getService(ArthasPackageService.class);
                 packageService.resolve(new PackageSourceSpec(PackageSourceType.OFFICIAL_LATEST), true);
-                ApplicationManager.getApplication().invokeLater(() -> {
+                runOnUiThread(() -> {
                     updateOfficialLatestPackageButton.setEnabled(true);
                     UiToolkit.notifyInfo(project, message("settings.package.updated"));
                 });
             } catch (Exception exception) {
-                ApplicationManager.getApplication().invokeLater(() -> {
+                runOnUiThread(() -> {
                     updateOfficialLatestPackageButton.setEnabled(true);
                     UiToolkit.notifyError(project, message("settings.package.update_failed", exception.getMessage()));
                 });
@@ -971,6 +1006,13 @@ public final class ArthasWorkbenchSettingsPanel {
 
     private String randomToken() {
         return UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private boolean isUiContextAlive() {
+        return !disposed
+                && UiToolkit.isProjectAlive(project)
+                && (ApplicationManager.getApplication() == null
+                        || !ApplicationManager.getApplication().isDisposed());
     }
 
     private String message(String key, Object... params) {

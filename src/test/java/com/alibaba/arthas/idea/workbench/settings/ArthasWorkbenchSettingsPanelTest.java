@@ -228,6 +228,18 @@ public class ArthasWorkbenchSettingsPanelTest {
         assertFalse(panel.getJifaCacheStatusText().isBlank());
     }
 
+    @Test
+    public void shouldAllowDisposingSettingsPanelDuringCacheLifecycle() {
+        ArthasWorkbenchSettingsPanel panel = new ArthasWorkbenchSettingsPanel(null);
+        String statusBeforeDispose = panel.getJifaCacheStatusText();
+
+        panel.dispose();
+        panel.setJifaHelperPath("/tmp/offline-helper");
+
+        assertEquals(statusBeforeDispose, panel.getJifaCacheStatusText());
+        assertEquals("/tmp/offline-helper", panel.getJifaHelperPath());
+    }
+
     private JifaWebRuntimeService.CacheSummary cacheSummary(
             Path root, long totalFiles, long totalBytes, int importedEntries, boolean running, int port) {
         JifaWebRuntimeService.DirectorySummary storage =

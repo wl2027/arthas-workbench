@@ -106,6 +106,7 @@ public final class ArthasWorkbenchPanel extends JPanel implements Disposable {
     private final JButton openSessionButton = createButton("workbench.button.open_session", this::openSelectedSession);
     private final JButton stopAttachButton = createButton("workbench.button.stop_attach", this::stopSelectedAttach);
     private final JButton otherActionsButton = createButton("workbench.button.more", this::showOtherActionsMenu);
+    private volatile boolean disposed;
 
     public ArthasWorkbenchPanel(Project project) {
         super(new BorderLayout(0, 8));
@@ -848,11 +849,19 @@ public final class ArthasWorkbenchPanel extends JPanel implements Disposable {
     }
 
     private void runOnEdt(Runnable action) {
+        if (disposed || project.isDisposed()) {
+            return;
+        }
         if (ApplicationManager.getApplication().isDispatchThread()) {
             action.run();
             return;
         }
-        ApplicationManager.getApplication().invokeLater(action);
+        ApplicationManager.getApplication().invokeLater(() -> {
+            if (disposed || project.isDisposed()) {
+                return;
+            }
+            action.run();
+        });
     }
 
     private ProcessRow selectedProcessRow() {
@@ -1068,7 +1077,7 @@ public final class ArthasWorkbenchPanel extends JPanel implements Disposable {
 
     @Override
     public void dispose() {
-        // 当前面板没有额外的本地资源需要主动释放。
+        disposed = true;
     }
 
     /**

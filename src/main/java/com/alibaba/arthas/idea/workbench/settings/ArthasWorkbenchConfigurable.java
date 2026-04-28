@@ -74,6 +74,9 @@ public final class ArthasWorkbenchConfigurable implements SearchableConfigurable
 
     @Override
     public void disposeUIResources() {
+        if (settingsPanel != null) {
+            settingsPanel.dispose();
+        }
         settingsPanel = null;
     }
 
