@@ -1,0 +1,58 @@
+# GitHub Actions Workflow that runs the IntelliJ Plugin Verifier.
+#
+# The verifier is intentionally kept OUT of the main build / release-draft pipeline because
+# it downloads additional IDE distributions and significantly increases build time and disk
+# usage. It runs here on demand and on a weekly schedule instead, and never blocks creating
+# a release draft. The `intellijPlatform.pluginVerification` configuration in build.gradle.kts
+# is preserved for these manual / scheduled runs.
+
+name: Run Plugin Verifier
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly, Mondays at 03:00 UTC.
+    - cron: '0 3 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  verify:
+    name: Verify plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+
+      - name: Maximize Build Space
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: false
+          large-packages: false
+
+      - name: Fetch Sources
+        uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # Run plugin structure verification and the IntelliJ Plugin Verifier tool.
+      - name: Run Plugin Verification tasks
+        run: ./gradlew verifyPlugin --console=plain
+
+      - name: Collect Plugin Verifier Result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: pluginVerifier-result
+          path: build/reports/pluginVerifier
+          retention-days: 7
+          if-no-files-found: ignore
