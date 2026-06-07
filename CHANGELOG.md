@@ -2,6 +2,13 @@
 
 # arthas-workbench Changelog
 
+## [0.0.8] - 2026-06-07
+### Fixed
+- 修复正式发布时 `publishPlugin` 因 `patchChangelog` 与 Spotless `misc` 任务缺少顺序依赖而触发 Gradle 隐式依赖校验失败的问题，确保 JetBrains Marketplace 发布可正常执行
+
+### Changed
+- `Release draft` 流程现在会同时构建并上传 `arthas-jifa-server-helper.jar`，保证每个 latest Release 都带有插件运行时所需的 Jifa helper 资产，避免全新安装时 `Open in Jifa Web` 因资产缺失而失败
+
 ## [0.0.7] - 2026-06-07
 ### Changed
 - 维护性发布：重构 CI/CD 发布流程——测试拆分为 `unitTest` / `integrationTest` / `ideaUiTest` 分类执行；主分支在版本待发布时自动创建或刷新 GitHub Release 草稿；正式发布后再自动签名并上传 JetBrains Marketplace。插件功能本身无变化。
