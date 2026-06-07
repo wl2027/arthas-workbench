@@ -196,6 +196,49 @@ tasks {
 }
 
 intellijPlatformTesting {
+    // 将既有 JUnit 用例按包拆分为三个可独立执行的测试任务，便于 CI 分类运行。
+    // 这些任务由 IntelliJ Platform Gradle Plugin 的 testIde 容器创建，自动继承项目平台与沙箱配置：
+    //  - unitTest：纯逻辑用例（util / model / analysis 包）。
+    //  - integrationTest：服务层多组件协作用例（service 包）。
+    //  - ideaUiTest：无头 Swing UI 组件 / 状态用例（ui / settings 包）。
+    testIde {
+        register("unitTest") {
+            testFramework(TestFrameworkType.Platform)
+            task {
+                group = "verification"
+                description = "运行纯逻辑单元测试（util / model / analysis 包）。"
+                dependsOn("spotlessCheck")
+                filter {
+                    includeTestsMatching("com.alibaba.arthas.idea.workbench.util.*")
+                    includeTestsMatching("com.alibaba.arthas.idea.workbench.model.*")
+                    includeTestsMatching("com.alibaba.arthas.idea.workbench.analysis.*")
+                }
+            }
+        }
+        register("integrationTest") {
+            testFramework(TestFrameworkType.Platform)
+            task {
+                group = "verification"
+                description = "运行服务层集成测试（service 包）。"
+                dependsOn("spotlessCheck")
+                filter {
+                    includeTestsMatching("com.alibaba.arthas.idea.workbench.service.*")
+                }
+            }
+        }
+        register("ideaUiTest") {
+            testFramework(TestFrameworkType.Platform)
+            task {
+                group = "verification"
+                description = "运行无头 Swing UI 组件测试（ui / settings 包）。"
+                dependsOn("spotlessCheck")
+                filter {
+                    includeTestsMatching("com.alibaba.arthas.idea.workbench.ui.*")
+                    includeTestsMatching("com.alibaba.arthas.idea.workbench.settings.*")
+                }
+            }
+        }
+    }
     runIde {
         register("runIdeForUiTests") {
             task {
