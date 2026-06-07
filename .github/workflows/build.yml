@@ -161,12 +161,18 @@ jobs:
 
       - name: Fetch Sources
         uses: actions/checkout@v6
+        with:
+          # The Jifa helper is built from the pinned `jifa` submodule.
+          submodules: recursive
 
+      # JDK 21 builds the plugin; JDK 17 builds the Jifa server (Spring Boot 3.3 + Eclipse MAT).
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
           distribution: zulu
-          java-version: 21
+          java-version: |
+            17
+            21
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v5
@@ -174,6 +180,24 @@ jobs:
       # Build the distributable plugin ZIP.
       - name: Build plugin
         run: ./gradlew buildPlugin --console=plain
+
+      # Build the standalone Jifa server helper from the submodule and stage it under the fixed
+      # asset name the plugin downloads at runtime
+      # (releases/latest/download/arthas-jifa-server-helper.jar). Built with JDK 17 to match the
+      # jifa toolchain; see docs/RELEASE.md.
+      - name: Build Jifa helper
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: |
+          set -euo pipefail
+          ( cd jifa && ./gradlew :server:bootJar --no-daemon --console=plain )
+          mkdir -p build/release-assets
+          cp jifa/server/build/libs/jifa.jar build/release-assets/arthas-jifa-server-helper.jar
+          if [ ! -s build/release-assets/arthas-jifa-server-helper.jar ]; then
+            echo "::error::Jifa helper jar was not produced"
+            exit 1
+          fi
+          echo "Staged helper: $(ls -la build/release-assets/arthas-jifa-server-helper.jar)"
 
       # Fail explicitly if the expected artifact is missing.
       - name: Verify distribution artifact
@@ -210,6 +234,7 @@ jobs:
         run: |
           set -euo pipefail
           NOTES="build/release-notes.md"
+          HELPER="build/release-assets/arthas-jifa-server-helper.jar"
 
           if state=$(gh release view "${VERSION}" --json isDraft --jq '.isDraft' 2>/dev/null); then
             if [ "${state}" != "true" ]; then
@@ -223,8 +248,8 @@ jobs:
               --target "${GITHUB_SHA}" \
               --title "${VERSION}" \
               --notes-file "${NOTES}"
-            # Overwrite the previous ZIP asset of the same name.
-            gh release upload "${VERSION}" build/distributions/*.zip --clobber
+            # Overwrite the previous plugin ZIP and Jifa helper jar of the same name.
+            gh release upload "${VERSION}" build/distributions/*.zip "${HELPER}" --clobber
           else
             echo "Creating new draft release ${VERSION}"
             gh release create "${VERSION}" \
@@ -232,5 +257,5 @@ jobs:
               --target "${GITHUB_SHA}" \
               --title "${VERSION}" \
               --notes-file "${NOTES}" \
-              build/distributions/*.zip
+              build/distributions/*.zip "${HELPER}"
           fi

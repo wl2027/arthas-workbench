@@ -32,6 +32,8 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew verifyPlugin
 
 Jifa helper 不再内置到插件 zip 中，而是单独作为 Release 资产发布，供插件运行时下载。
 
+> 自动化：`.github/workflows/build.yml` 的 `Release draft` job 会在每次准备草稿时自动执行下面的构建步骤，并把 `arthas-jifa-server-helper.jar` 与插件包一并上传到同一份草稿。因此正常发布无需手动构建；下列步骤仅用于本地复现或排障。
+
 构建步骤：
 
 1. 初始化子模块：
