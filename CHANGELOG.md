@@ -2,6 +2,10 @@
 
 # arthas-workbench Changelog
 
+## [0.0.7] - 2026-06-07
+### Changed
+- 维护性发布：重构 CI/CD 发布流程——测试拆分为 `unitTest` / `integrationTest` / `ideaUiTest` 分类执行；主分支在版本待发布时自动创建或刷新 GitHub Release 草稿；正式发布后再自动签名并上传 JetBrains Marketplace。插件功能本身无变化。
+
 ## [0.0.6] - 2026-04-28
 ### Fixed
 - 修复 `Open in Jifa Web` 在 IDEA 中错误复用当前 IDE 启动命令的问题；Jifa helper 现在会稳定使用当前 JBR 的 `java.home/bin/java` 启动，不再弹出 LightEdit 参数窗口，覆盖 issue `#11`
