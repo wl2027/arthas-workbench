@@ -190,6 +190,14 @@ tasks {
         delete(searchableOptionsSandboxRoot)
     }
 
+    // `patchChangelog` rewrites CHANGELOG.md, which the Spotless `misc` format also lists as an
+    // input (`*.md`). `publishPlugin` depends on both `patchChangelog` and `spotlessCheck`, so when
+    // they share a task graph Gradle aborts with an implicit-dependency validation error. Order the
+    // misc formatting after the changelog patch whenever both are scheduled.
+    matching { it.name.startsWith("spotlessMisc") }.configureEach {
+        mustRunAfter("patchChangelog")
+    }
+
     publishPlugin {
         dependsOn(patchChangelog, "spotlessCheck")
     }
